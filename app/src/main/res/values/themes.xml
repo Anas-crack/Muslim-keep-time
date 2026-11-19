@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MuslimTimeKeeper" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="colorPrimary">@color/emerald</item>
+        <item name="colorSecondary">@color/gold</item>
+        <item name="android:windowBackground">@color/bg_main</item>
+        <item name="android:statusBarColor">@color/bg_nav</item>
+        <item name="android:navigationBarColor">@color/bg_nav</item>
+    </style>
+</resources>
