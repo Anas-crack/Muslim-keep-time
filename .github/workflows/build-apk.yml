@@ -1,9 +1,18 @@
-name: Build MuslimTimeKeeper APK
+name: Build & Publish MuslimTimeKeeper APK
 
 on:
   push:
     branches: [ main, master ]
+    tags: [ 'v*' ]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release Tag (e.g. v1.0.2)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -22,3 +31,10 @@ jobs:
         with:
           name: MuslimTimeKeeper-APK
           path: app/build/outputs/apk/debug/app-debug.apk
+      - name: Publish Release
+        if: startsWith(github.ref, 'refs/tags/v') || github.event.inputs.release_tag != ''
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || github.ref_name }}
+          name: Muslim Time Keeper ${{ github.event.inputs.release_tag != '' && github.event.inputs.release_tag || github.ref_name }}
+          files: app/build/outputs/apk/debug/app-debug.apk
