@@ -97,6 +97,27 @@ object PrayerCalculator {
         return map
     }
 
+    fun localizedName(enName: String, isAr: Boolean): String {
+        if (!isAr) return enName
+        return when (enName) {
+            "Fajr" -> "الفجر"
+            "Dhuhr" -> "الظهر"
+            "Asr" -> "العصر"
+            "Maghrib" -> "المغرب"
+            "Isha" -> "العشاء"
+            else -> enName
+        }
+    }
+
+    fun getNextPrayer(lat: Double, lon: Double, tz: Double, isAr: Boolean): Pair<String, Long> {
+        val now = System.currentTimeMillis()
+        for ((name, cal) in calculateToday(lat, lon, tz)) {
+            if (cal.timeInMillis > now) return Pair(localizedName(name, isAr), cal.timeInMillis)
+        }
+        val fajr = calculateToday(lat, lon, tz)["Fajr"]!!.timeInMillis + 86_400_000L
+        return Pair(localizedName("Fajr", isAr), fajr)
+    }
+
     fun getActivePrayer(lat: Double, lon: Double, tz: Double, durationMin: Int): PrayerWindow? {
         val now = System.currentTimeMillis()
         val durMs = durationMin * 60_000L

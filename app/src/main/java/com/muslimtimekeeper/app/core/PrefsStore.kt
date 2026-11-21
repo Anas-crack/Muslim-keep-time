@@ -51,6 +51,14 @@ class PrefsStore(context: Context) {
         }
     }
 
+    var userName: String
+        get() = prefs.getString("user_name", "") ?: ""
+        set(v) = prefs.edit().putString("user_name", v).apply()
+
+    var isDarkMode: Boolean
+        get() = prefs.getBoolean("is_dark_mode", true)
+        set(v) = prefs.edit().putBoolean("is_dark_mode", v).apply()
+
     var isArabic: Boolean
         get() = prefs.getBoolean("is_arabic", true)
         set(v) = prefs.edit().putBoolean("is_arabic", v).apply()

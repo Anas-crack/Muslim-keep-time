@@ -29,6 +29,7 @@ class GuardianService : Service() {
     private var lastDetectedPkg: String? = null
     private var prayerUnlockedUntil: Long = 0L
     private var tickCounter = 0
+    private val sentAlerts = HashSet<String>()
 
     private val tickRunnable = object : Runnable {
         override fun run() {
@@ -145,6 +146,23 @@ class GuardianService : Service() {
         }
     }
 
+    private fun sendPreAlert(key: String, msg: String) {
+        val fullKey = "${store.todayStr()}_$key"
+        if (sentAlerts.contains(fullKey)) return
+        sentAlerts.add(fullKey)
+        val chId = "mtk_alerts_channel"
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.createNotificationChannel(NotificationChannel(chId, "Time & Prayer Alerts", NotificationManager.IMPORTANCE_HIGH))
+        val notif = NotificationCompat.Builder(this, chId)
+            .setContentTitle(if (store.isArabic) "⏰ تنبيه حارس وقت المسلم" else "⏰ Muslim Time Keeper Alert")
+            .setContentText(msg)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .build()
+        nm.notify(key.hashCode(), notif)
+    }
+
     private fun evaluateRules() {
         store.ensureToday()
         if (!isScreenOn()) return
@@ -167,6 +185,9 @@ class GuardianService : Service() {
         // 2. Daily Phone Limit (counts every 1 second while screen is ON)
         val used = store.phoneSecondsUsedToday + 1
         store.phoneSecondsUsedToday = used
+        val remSec = (store.dailyPhoneLimitMinutes * 60) - used
+        if (remSec in 301..600) sendPreAlert("pc_10", if (store.isArabic) "متبقي 10 دقائق على انتهاء وقت الهاتف اليوم! احفظ عملك." else "10 minutes left on phone today!")
+        if (remSec in 1..300) sendPreAlert("pc_5", if (store.isArabic) "متبقي 5 دقائق فقط على انتهاء وقت الهاتف اليوم!" else "Only 5 minutes left on phone today!")
         if (used >= store.dailyPhoneLimitMinutes * 60) {
             store.isPhoneLockedToday = true
             store.lockReason = if (store.isArabic) "انتهى الحد اليومي المسموح لاستخدام الهاتف." else "Daily phone screen time limit has been reached."
@@ -175,6 +196,10 @@ class GuardianService : Service() {
         }
 
         // 3. Prayer Time Lock + Adhan
+        val nxtP = PrayerCalculator.getNextPrayer(store.latitude, store.longitude, store.timezoneOffset, store.isArabic)
+        val secToPr = ((nxtP.second - System.currentTimeMillis()) / 1000L).toInt()
+        if (secToPr in 301..600) sendPreAlert("pr10_${nxtP.first}", if (store.isArabic) "اقترب موعد صلاة ${nxtP.first} — متبقي 10 دقائق!" else "${nxtP.first} prayer is in 10 minutes!")
+        if (secToPr in 1..300) sendPreAlert("pr5_${nxtP.first}", if (store.isArabic) "متبقي 5 دقائق على صلاة ${nxtP.first}!" else "${nxtP.first} prayer is in 5 minutes!")
         if (store.prayerLockEnabled && System.currentTimeMillis() >= prayerUnlockedUntil) {
             val active = PrayerCalculator.getActivePrayer(
                 store.latitude, store.longitude, store.timezoneOffset, store.prayerDurationMinutes
@@ -183,7 +208,7 @@ class GuardianService : Service() {
                 if (isAllowedCallPackage(fg)) {
                     overlay.hide()
                 } else {
-                    val msg = if (store.isArabic) "حان الآن موعد صلاة ${active.name}" else "${active.name} Prayer Time"
+                    val msg = if (store.isArabic) "حان الآن موعد صلاة ${PrayerCalculator.localizedName(active.name, store.isArabic)}" else "${PrayerCalculator.localizedName(active.name, store.isArabic)} Prayer Time"
                     enforceLockOverlay("PRAYER_LOCK", msg, active.endMillis)
                 }
                 return
