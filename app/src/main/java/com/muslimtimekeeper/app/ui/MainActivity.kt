@@ -517,7 +517,7 @@ class MainActivity : AppCompatActivity() {
         val updCard = makeCard(if (store.isArabic) "🔄 تحديث التطبيق تلقائياً (OTA)" else "🔄 In-App Auto-Update (OTA)", "#0284C7")
         val repoIn = EditText(this).apply { hint = "Anas-crack/Muslim-keeper"; setTextColor(textPrimary()); setText(store.updateRepo) }
         updCard.addView(repoIn)
-        updCard.addView(TextView(this).apply { text = (if (store.isArabic) "الإصدار الحالي: v" else "Current Version: v") + UpdateManager.getCurrentVersionName(this); setTextColor(textMuted()); textSize = 12.5f })
+        updCard.addView(TextView(this).apply { text = (if (store.isArabic) "الإصدار الحالي: v" else "Current Version: v") + UpdateManager.getCurrentVersionName(this@MainActivity); setTextColor(textMuted()); textSize = 12.5f })
         updCard.addView(makeBtn(if (store.isArabic) "🚀 التحقق من التحديثات وتنزيلها" else "🚀 Check & Install Update", "#0284C7", "#0369A1") {
             val repo = repoIn.text.toString().trim(); store.updateRepo = repo
             if (!repo.contains("/")) return@makeBtn
