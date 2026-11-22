@@ -197,7 +197,7 @@ class MainActivity : AppCompatActivity() {
         val navBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; setBackgroundColor(bgBar()); setPadding(dp(8), dp(8), dp(8), dp(10))
         }
-        val labels = listOf(s("tab_home"), s("tab_apps"), s("tab_prayer"), s("tab_safety"))
+        val labels = listOf(s("tab_home"), s("tab_apps"), s("tab_prayer"), s("tab_data"), s("tab_safety"))
         navButtons = labels.mapIndexed { idx, txt ->
             TextView(this).apply {
                 text = txt; gravity = Gravity.CENTER; textSize = 11.5f; setTypeface(null, Typeface.BOLD); setPadding(dp(4), dp(8), dp(4), dp(8))
@@ -225,6 +225,7 @@ class MainActivity : AppCompatActivity() {
             0 -> buildHomeTab()
             1 -> buildAppsTab()
             2 -> buildPrayerTab()
+            3 -> buildDataTab()
             else -> buildSafetyTab()
         }
         contentContainer.removeAllViews()
@@ -470,6 +471,131 @@ class MainActivity : AppCompatActivity() {
         return scroll
     }
 
+    // --- Tab 3: Device Internet Data Quota (GB Ring, Consumed, Remaining, %, Auto Cut-off) ---
+    private fun formatDataMb(bytes: Long): String {
+        val mb = bytes / (1024.0 * 1024.0)
+        return if (mb >= 1024.0) String.format(Locale.US, "%.2f GB", mb / 1024.0)
+        else String.format(Locale.US, "%.0f MB", mb)
+    }
+
+    private fun buildDataTab(): View {
+        val scroll = ScrollView(this)
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(16), dp(16), dp(24)) }
+
+        val limitBytes = maxOf(1L, store.dataLimitMb.toLong() * 1024L * 1024L)
+        val usedBytes = store.dataUsedBytes
+        val remBytes = maxOf(0L, limitBytes - usedBytes)
+        val ratio = (usedBytes.toDouble() / limitBytes.toDouble()).toFloat().coerceIn(0f, 1f)
+        val pct = (ratio * 100f).toInt()
+
+        // 1. Main Circular Quota Gauge Card
+        val gaugeCard = makeCard(if (store.isArabic) "📶 استهلاك الإنترنت لهذا الجهاز" else "📶 Device Internet Data Quota", "#10B981")
+
+        val ringFrame = FrameLayout(this).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(210), dp(210)).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+                topMargin = dp(6); bottomMargin = dp(14)
+            }
+        }
+        val ring = DataQuotaRingView(this).apply { setQuota(ratio, store.isDarkMode) }
+        val centerBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+            layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.CENTER)
+        }
+        centerBox.addView(TextView(this).apply {
+            text = "$pct%"
+            textSize = 32f; setTypeface(null, Typeface.BOLD)
+            setTextColor(if (pct >= 95) Color.parseColor("#EF4444") else if (pct >= 75) Color.parseColor("#F59E0B") else Color.parseColor("#10B981"))
+        })
+        centerBox.addView(TextView(this).apply {
+            text = if (store.isArabic) "نسبة الاستهلاك" else "USED"
+            textSize = 11.5f; setTextColor(textMuted())
+        })
+        ringFrame.addView(ring); ringFrame.addView(centerBox)
+        gaugeCard.addView(ringFrame)
+
+        // 3 Stat Pills: Consumed | Remaining | Total Quota
+        val statsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun addStat(lbl: String, valStr: String, colHex: String) {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                background = gradientBg(btnNeutralBg(), btnNeutralBg(), 14)
+                setPadding(dp(8), dp(10), dp(8), dp(10))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4); marginEnd = dp(4) }
+            }
+            box.addView(TextView(this).apply { text = valStr; textSize = 14.5f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor(colHex)); gravity = Gravity.CENTER })
+            box.addView(TextView(this).apply { text = lbl; textSize = 10.5f; setTextColor(textMuted()); gravity = Gravity.CENTER })
+            statsRow.addView(box)
+        }
+        addStat(if (store.isArabic) "المستهلك" else "Used", formatDataMb(usedBytes), "#F59E0B")
+        addStat(if (store.isArabic) "المتبقي" else "Remaining", formatDataMb(remBytes), "#10B981")
+        addStat(if (store.isArabic) "الباقة" else "Limit", formatDataMb(limitBytes), btnNeutralFg())
+        gaugeCard.addView(statsRow)
+        col.addView(gaugeCard)
+
+        // 2. Enable Data Cut-off + Adjust GB Quota Card
+        val ctrlCard = makeCard(if (store.isArabic) "⚙️ التحكم في الباقة وقطع الإنترنت" else "⚙️ Quota Limit & Auto Cut-Off")
+        val swQuota = Switch(this).apply {
+            text = if (store.isArabic) "قطع الإنترنت تلقائياً عند انتهاء الجيجات (يتطلب موافقة الوالدين)" else "Block internet automatically when quota ends (Parent PIN)"
+            isChecked = store.dataLimitEnabled
+            setTextColor(textPrimary())
+            setOnCheckedChangeListener { _, checked ->
+                requireParentPin {
+                    store.dataLimitEnabled = checked
+                    if (checked) {
+                        val prep = VpnService.prepare(this@MainActivity)
+                        if (prep != null) vpnLauncher.launch(prep)
+                    } else if (store.isInternetBlockedByQuota) {
+                        store.isInternetBlockedByQuota = false
+                        startService(Intent(this@MainActivity, SafeDnsVpnService::class.java).apply { action = if (store.webSafetyEnabled) "SAFE_DNS" else "STOP_VPN" })
+                    }
+                    renderTab(3)
+                }
+            }
+        }
+        ctrlCard.addView(swQuota)
+
+        ctrlCard.addView(TextView(this).apply {
+            text = if (store.isArabic) "\nتعديل حد الباقة المسموح لهذا الجهاز:" else "\nAdjust allowed data quota:"
+            setTextColor(textMuted()); textSize = 12.5f
+        })
+        val adjRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, dp(6)) }
+        for (pair in listOf(Pair("-500MB", -512), Pair("+500MB", 512), Pair("+1GB", 1024), Pair("+5GB", 5120))) {
+            val b = Button(this).apply {
+                text = pair.first
+                background = gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                setTextColor(Color.parseColor(btnNeutralFg())); isAllCaps = false; textSize = 12f
+                layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
+                setOnClickListener {
+                    requireParentPin {
+                        store.dataLimitMb = (store.dataLimitMb + pair.second).coerceIn(100, 512000)
+                        if (store.dataUsedBytes < store.dataLimitMb.toLong() * 1024L * 1024L && store.isInternetBlockedByQuota) {
+                            store.isInternetBlockedByQuota = false
+                            startService(Intent(this@MainActivity, SafeDnsVpnService::class.java).apply { action = if (store.webSafetyEnabled) "SAFE_DNS" else "STOP_VPN" })
+                        }
+                        renderTab(3)
+                    }
+                }
+            }
+            adjRow.addView(b)
+        }
+        ctrlCard.addView(adjRow)
+
+        ctrlCard.addView(makeBtn(if (store.isArabic) "🔄 تصفير عداد الاستهلاك وفتح الإنترنت" else "🔄 Reset Data Counter & Restore Internet", "#059669", "#10B981") {
+            requireParentPin {
+                store.dataUsedBytes = 0L
+                store.isInternetBlockedByQuota = false
+                startService(Intent(this, SafeDnsVpnService::class.java).apply { action = if (store.webSafetyEnabled) "SAFE_DNS" else "STOP_VPN" })
+                Toast.makeText(this, if (store.isArabic) "تم تصفير استهلاك الإنترنت!" else "Data usage reset!", Toast.LENGTH_SHORT).show()
+                renderTab(3)
+            }
+        })
+        col.addView(ctrlCard)
+
+        scroll.addView(col)
+        return scroll
+    }
+
     // --- Tab 3: Safety, Permissions & In-App OTA Update ---
     private fun buildSafetyTab(): View {
         val scroll = ScrollView(this)
@@ -481,11 +607,11 @@ class MainActivity : AppCompatActivity() {
             requireParentPin {
                 val prep = VpnService.prepare(this)
                 if (prep != null) vpnLauncher.launch(prep)
-                else { startService(Intent(this, SafeDnsVpnService::class.java)); store.webSafetyEnabled = true; renderTab(3) }
+                else { startService(Intent(this, SafeDnsVpnService::class.java)); store.webSafetyEnabled = true; renderTab(4) }
             }
         })
         webCard.addView(makeBtn(s("disable_dns"), btnNeutralBg(), btnNeutralBg(), btnNeutralFg()) {
-            requireParentPin { startService(Intent(this, SafeDnsVpnService::class.java).apply { action = "STOP_VPN" }); store.webSafetyEnabled = false; renderTab(3) }
+            requireParentPin { startService(Intent(this, SafeDnsVpnService::class.java).apply { action = "STOP_VPN" }); store.webSafetyEnabled = false; renderTab(4) }
         })
         col.addView(webCard)
 

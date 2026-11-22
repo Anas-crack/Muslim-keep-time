@@ -173,3 +173,52 @@ class AdhanWaveView(context: Context) : View(context) {
         }
     }
 }
+
+/**
+ * Clean Circular Progress Ring for Device Internet Data Quota (GB)
+ */
+class DataQuotaRingView(context: Context) : View(context) {
+    private var usedRatio: Float = 0f
+    private var isDark: Boolean = true
+
+    private val trackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 28f
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    private val arcPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 28f
+        strokeCap = Paint.Cap.ROUND
+    }
+
+    fun setQuota(ratio: Float, dark: Boolean) {
+        usedRatio = ratio.coerceIn(0f, 1f)
+        isDark = dark
+        invalidate()
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        super.onDraw(canvas)
+        val cx = width / 2f
+        val cy = height / 2f
+        val r = min(cx, cy) - 26f
+        if (r <= 10f) return
+        val oval = RectF(cx - r, cy - r, cx + r, cy + r)
+
+        trackPaint.color = if (isDark) Color.parseColor("#1B2E2B") else Color.parseColor("#E2E8F0")
+        canvas.drawCircle(cx, cy, r, trackPaint)
+
+        val arcColor = when {
+            usedRatio >= 0.95f -> Color.parseColor("#EF4444")
+            usedRatio >= 0.75f -> Color.parseColor("#F59E0B")
+            else -> Color.parseColor("#10B981")
+        }
+        arcPaint.color = arcColor
+        val sweep = 360f * usedRatio
+        if (sweep > 0.5f) {
+            canvas.drawArc(oval, -90f, sweep, false, arcPaint)
+        }
+    }
+}
