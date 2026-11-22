@@ -11,13 +11,26 @@ android {
         applicationId "com.muslimtimekeeper.app"
         minSdk 26
         targetSdk 34
-        versionCode 3
-        versionName "1.0.3"
+        versionCode 4
+        versionName "1.0.4"
+    }
+
+    signingConfigs {
+        fixedKey {
+            storeFile file("mtk_fixed.jks")
+            storePassword "mtk2026pass"
+            keyAlias "mtk_key"
+            keyPassword "mtk2026pass"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig signingConfigs.fixedKey
+        }
         release {
             minifyEnabled false
+            signingConfig signingConfigs.fixedKey
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
