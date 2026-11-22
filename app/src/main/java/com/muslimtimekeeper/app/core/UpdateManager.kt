@@ -39,50 +39,62 @@ object UpdateManager {
     }
 
     fun checkLatestRelease(context: Context, ownerRepo: String): ReleaseInfo? {
-        val cleanRepo = ownerRepo.trim().trim('/')
-        if (!cleanRepo.contains("/")) return null
-        val url = URL("https://api.github.com/repos/$cleanRepo/releases/latest")
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            setRequestProperty("Accept", "application/vnd.github+json")
-            connectTimeout = 8000
-            readTimeout = 8000
-        }
-        if (conn.responseCode != 200) return null
-        val body = conn.inputStream.bufferedReader().readText()
-        val json = JSONObject(body)
-        val tag = json.optString("tag_name", "")
-        val current = getCurrentVersionName(context)
-        if (tag.isEmpty() || !isNewerVersion(tag, current)) return null
-
-        val assets = json.optJSONArray("assets") ?: return null
-        var apkUrl = ""
-        for (i in 0 until assets.length()) {
-            val a = assets.getJSONObject(i)
-            val name = a.optString("name", "")
-            if (name.endsWith(".apk", ignoreCase = true)) {
-                apkUrl = a.optString("browser_download_url", "")
-                break
+        return try {
+            val cleanRepo = ownerRepo.trim()
+                .removePrefix("https://github.com/")
+                .removePrefix("http://github.com/")
+                .trim('/')
+            if (!cleanRepo.contains("/")) return null
+            val url = URL("https://api.github.com/repos/$cleanRepo/releases/latest")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("User-Agent", "MuslimTimeKeeper-Android")
+                connectTimeout = 12000
+                readTimeout = 15000
             }
+            if (conn.responseCode != 200) return null
+            val body = conn.inputStream.bufferedReader().readText()
+            val json = JSONObject(body)
+            val tag = json.optString("tag_name", "")
+            val current = getCurrentVersionName(context)
+            if (tag.isEmpty() || !isNewerVersion(tag, current)) return null
+
+            val assets = json.optJSONArray("assets") ?: return null
+            var apkUrl = ""
+            for (i in 0 until assets.length()) {
+                val a = assets.getJSONObject(i)
+                val name = a.optString("name", "")
+                if (name.endsWith(".apk", ignoreCase = true)) {
+                    apkUrl = a.optString("browser_download_url", "")
+                    break
+                }
+            }
+            if (apkUrl.isEmpty()) return null
+            ReleaseInfo(tag, apkUrl, json.optString("body", ""))
+        } catch (_: Exception) {
+            null
         }
-        if (apkUrl.isEmpty()) return null
-        return ReleaseInfo(tag, apkUrl, json.optString("body", ""))
     }
 
     fun downloadAndInstallApk(context: Context, apkUrl: String): Boolean {
         return try {
-            val outFile = File(context.cacheDir, "update.apk")
+            val outFile = File(context.cacheDir, "mtk_update_latest.apk")
             if (outFile.exists()) outFile.delete()
             val conn = (URL(apkUrl).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = true
-                connectTimeout = 15000
-                readTimeout = 30000
+                setRequestProperty("User-Agent", "MuslimTimeKeeper-Android")
+                connectTimeout = 20000
+                readTimeout = 90000
             }
+            if (conn.responseCode !in 200..299) return false
             conn.inputStream.use { input ->
                 FileOutputStream(outFile).use { output ->
                     input.copyTo(output)
+                    output.flush()
                 }
             }
+            if (!outFile.exists() || outFile.length() < 100_000L) return false
             val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", outFile)
             val intent = Intent(Intent.ACTION_VIEW).apply {
                 setDataAndType(uri, "application/vnd.android.package-archive")

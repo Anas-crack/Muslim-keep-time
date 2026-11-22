@@ -2,6 +2,7 @@ package com.muslimtimekeeper.app.ui
 
 import android.app.AlertDialog
 import android.app.admin.DevicePolicyManager
+import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -349,6 +350,61 @@ class MainActivity : AppCompatActivity() {
         progCard.addView(btnRow)
         col.addView(progCard)
 
+        // 3. Bedtime Lock Card (Automatic Overnight Sleep Schedule)
+        val bedCard = makeCard(if (store.isArabic) "🌙 وضع النوم التلقائي (Bedtime Lock)" else "🌙 Bedtime Lock (Auto Sleep)", "#818CF8")
+        val swBed = Switch(this).apply {
+            text = if (store.isArabic) "قفل الهاتف تلقائياً وقت النوم (المكالمات الطارئة متاحة)" else "Auto-lock phone during bedtime (Emergency calls allowed)"
+            isChecked = store.bedtimeEnabled
+            setTextColor(textPrimary())
+            setOnCheckedChangeListener { _, checked ->
+                requireParentPin { store.bedtimeEnabled = checked; renderTab(0) }
+            }
+        }
+        bedCard.addView(swBed)
+
+        val bedTimeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(8), 0, dp(6)) }
+        fun addHourCtrl(label: String, hourVal: Int, onChange: (Int) -> Unit) {
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                background = gradientBg(btnNeutralBg(), btnNeutralBg(), 12)
+                setPadding(dp(8), dp(8), dp(8), dp(8))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4); marginEnd = dp(4) }
+            }
+            box.addView(TextView(this).apply { text = label; textSize = 11f; setTextColor(textMuted()); gravity = Gravity.CENTER })
+            box.addView(TextView(this).apply { text = String.format(Locale.US, "%02d:00", hourVal); textSize = 17f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#818CF8")); gravity = Gravity.CENTER })
+            val bRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+            val bMinus = Button(this).apply {
+                text = "-"; isAllCaps = false; textSize = 13f
+                background = gradientBg("#1E293B", "#1E293B", 8); setTextColor(Color.WHITE)
+                layoutParams = LinearLayout.LayoutParams(0, dp(32), 1f).apply { marginEnd = dp(4) }
+                setOnClickListener { requireParentPin { onChange((hourVal + 23) % 24); renderTab(0) } }
+            }
+            val bPlus = Button(this).apply {
+                text = "+"; isAllCaps = false; textSize = 13f
+                background = gradientBg("#1E293B", "#1E293B", 8); setTextColor(Color.WHITE)
+                layoutParams = LinearLayout.LayoutParams(0, dp(32), 1f)
+                setOnClickListener { requireParentPin { onChange((hourVal + 1) % 24); renderTab(0) } }
+            }
+            bRow.addView(bMinus); bRow.addView(bPlus)
+            box.addView(bRow)
+            bedTimeRow.addView(box)
+        }
+        addHourCtrl(if (store.isArabic) "بداية النوم" else "Sleep Start", store.bedtimeStartHour) { store.bedtimeStartHour = it }
+        addHourCtrl(if (store.isArabic) "الاستيقاظ" else "Wake Up", store.bedtimeEndHour) { store.bedtimeEndHour = it }
+        bedCard.addView(bedTimeRow)
+        col.addView(bedCard)
+
+        // 4. Weekly Report Quick Card
+        val repCard = makeCard(if (store.isArabic) "📊 التقرير الأسبوعي السريع" else "📊 Quick Weekly Report", "#10B981")
+        repCard.addView(TextView(this).apply {
+            text = if (store.isArabic) "اعرض أكثر التطبيقات استهلاكاً للوقت والإنترنت هذا الأسبوع مع مقارنة بالأسبوع السابق." else "View top apps by screen time and internet usage this week vs. last week."
+            textSize = 12.5f; setTextColor(textMuted())
+        })
+        repCard.addView(makeBtn(if (store.isArabic) "📈 فتح التقرير الأسبوعي" else "📈 Open Weekly Report", "#059669", "#10B981") {
+            showWeeklyReportDialog()
+        })
+        col.addView(repCard)
+
         // 3. Quick Reset Card
         col.addView(makeBtn(s("reset_today"), btnNeutralBg(), btnNeutralBg(), btnNeutralFg()) {
             requireParentPin { store.resetAllToday(); renderTab(0) }
@@ -357,6 +413,145 @@ class MainActivity : AppCompatActivity() {
         updateLiveTimerUi()
         scroll.addView(col)
         return scroll
+    }
+
+    private fun showWeeklyReportDialog() {
+        val ar = store.isArabic
+        val dayMs = 24L * 60L * 60L * 1000L
+        val now = System.currentTimeMillis()
+        val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
+
+        // Aggregate screen time for this week (last 7d) vs previous week (days 8..14)
+        val thisWeekMap = mutableMapOf<String, Long>()
+        var thisWeekMs = 0L
+        var prevWeekMs = 0L
+        try {
+            val curStats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 7L * dayMs, now) ?: emptyList()
+            for (u in curStats) {
+                if (u.totalTimeInForeground > 0L && u.packageName != packageName) {
+                    thisWeekMap[u.packageName] = (thisWeekMap[u.packageName] ?: 0L) + u.totalTimeInForeground
+                    thisWeekMs += u.totalTimeInForeground
+                }
+            }
+            val prevStats = usm.queryUsageStats(UsageStatsManager.INTERVAL_DAILY, now - 14L * dayMs, now - 7L * dayMs) ?: emptyList()
+            for (u in prevStats) {
+                if (u.totalTimeInForeground > 0L && u.packageName != packageName) {
+                    prevWeekMs += u.totalTimeInForeground
+                }
+            }
+        } catch (_: Exception) { }
+
+        // Aggregate daily history data (Internet bytes) for this week vs previous week
+        val hist = store.getDailyHistoryMap()
+        val fmtDay = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+        var thisWeekDataBytes = 0L
+        var prevWeekDataBytes = 0L
+        for (d in 0 until 7) {
+            val kCur = fmtDay.format(Date(now - d * dayMs))
+            val kPrev = fmtDay.format(Date(now - (d + 7) * dayMs))
+            thisWeekDataBytes += hist[kCur]?.second ?: 0L
+            prevWeekDataBytes += hist[kPrev]?.second ?: 0L
+        }
+        if (thisWeekDataBytes == 0L) thisWeekDataBytes = store.dataUsedBytes
+
+        val thisMin = (thisWeekMs / 60_000L).toInt()
+        val prevMin = (prevWeekMs / 60_000L).toInt()
+        val diffTimeStr = if (prevMin > 0) {
+            val pct = ((thisMin - prevMin) * 100) / prevMin
+            if (pct >= 0) "▲ +$pct%" else "▼ $pct%"
+        } else {
+            if (ar) "أول أسبوع" else "First week"
+        }
+        val diffDataStr = if (prevWeekDataBytes > 0L) {
+            val pct = (((thisWeekDataBytes - prevWeekDataBytes) * 100L) / prevWeekDataBytes).toInt()
+            if (pct >= 0) "▲ +$pct%" else "▼ $pct%"
+        } else {
+            if (ar) "أول أسبوع" else "First week"
+        }
+
+        val pm = packageManager
+        val topApps = thisWeekMap.entries.sortedByDescending { it.value }.take(5)
+
+        val scroll = ScrollView(this)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            layoutDirection = if (ar) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+            setPadding(dp(18), dp(14), dp(18), dp(14))
+        }
+
+        fun addSummaryLine(title: String, value: String, badge: String, colHex: String) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+                background = gradientBg(btnNeutralBg(), btnNeutralBg(), 12)
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }
+            }
+            val left = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            left.addView(TextView(this).apply { text = title; textSize = 12f; setTextColor(textMuted()) })
+            left.addView(TextView(this).apply { text = value; textSize = 16f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor(colHex)) })
+            row.addView(left)
+            row.addView(TextView(this).apply { text = badge; textSize = 12.5f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#F59E0B")) })
+            box.addView(row)
+        }
+
+        val hThis = thisMin / 60; val mThis = thisMin % 60
+        addSummaryLine(
+            if (ar) "⏱️ إجمالي وقت الشاشة (آخر 7 أيام)" else "⏱️ Total Screen Time (Last 7 Days)",
+            if (ar) "${hThis}س ${mThis}د" else "${hThis}h ${mThis}m",
+            diffTimeStr,
+            "#10B981"
+        )
+        addSummaryLine(
+            if (ar) "📶 إجمالي استهلاك الإنترنت (آخر 7 أيام)" else "📶 Total Internet Usage (Last 7 Days)",
+            formatDataMb(thisWeekDataBytes),
+            diffDataStr,
+            "#0284C7"
+        )
+
+        box.addView(TextView(this).apply {
+            text = if (ar) "
+🏆 أكثر 5 تطبيقات استخداماً هذا الأسبوع:" else "
+🏆 Top 5 Most Used Apps This Week:"
+            textSize = 14f; setTypeface(null, Typeface.BOLD); setTextColor(textPrimary())
+            setPadding(0, dp(4), 0, dp(8))
+        })
+
+        if (topApps.isEmpty()) {
+            box.addView(TextView(this).apply {
+                text = if (ar) "لا توجد بيانات كافية بعد — تأكد من تفعيل صلاحية تتبع التطبيقات (Usage Access)." else "No usage data yet — make sure Usage Access permission is granted."
+                textSize = 12.5f; setTextColor(textMuted())
+            })
+        } else {
+            val maxMs = maxOf(1L, topApps.first().value)
+            for ((pkg, ms) in topApps) {
+                val appLabel = try { pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString() } catch (_: Exception) { pkg }
+                val mins = (ms / 60_000L).toInt()
+                val hrs = mins / 60; val remM = mins % 60
+                val timeStr = if (hrs > 0) "${hrs}h ${remM}m" else "${remM}m"
+
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+                row.addView(TextView(this).apply { text = appLabel; textSize = 13.5f; setTypeface(null, Typeface.BOLD); setTextColor(textPrimary()); layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f) })
+                row.addView(TextView(this).apply { text = timeStr; textSize = 13f; setTextColor(Color.parseColor("#10B981")) })
+                box.addView(row)
+
+                val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                    max = 100
+                    progress = ((ms * 100L) / maxMs).toInt().coerceIn(5, 100)
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(10)).apply { topMargin = dp(3); bottomMargin = dp(10) }
+                }
+                box.addView(bar)
+            }
+        }
+
+        scroll.addView(box)
+        AlertDialog.Builder(this)
+            .setTitle(if (ar) "📊 التقرير الأسبوعي السريع" else "📊 Quick Weekly Report")
+            .setView(scroll)
+            .setPositiveButton(if (ar) "إغلاق" else "Close", null)
+            .show()
     }
 
     // --- Tab 1: Apps Picker ---
@@ -424,7 +619,19 @@ class MainActivity : AppCompatActivity() {
         val ctrlCard = makeCard(s("prayer_title"), "#10B981")
         val swLock = Switch(this).apply { text = s("prayer_lock_sw"); isChecked = store.prayerLockEnabled; setTextColor(textPrimary()); setOnCheckedChangeListener { _, c -> requireParentPin { store.prayerLockEnabled = c } } }
         val swAdhan = Switch(this).apply { text = s("adhan_sw"); isChecked = store.adhanAudioEnabled; setTextColor(textPrimary()); setOnCheckedChangeListener { _, c -> requireParentPin { store.adhanAudioEnabled = c } } }
-        ctrlCard.addView(swLock); ctrlCard.addView(swAdhan)
+        val swSilent = Switch(this).apply {
+            text = if (store.isArabic) "🔇 وضع الصمت التلقائي للمسجد (كتم الرنين وإعادته)" else "🔇 Mosque Auto-Silent (Mute & restore ringer)"
+            isChecked = store.mosqueAutoSilentEnabled
+            setTextColor(textPrimary())
+            setOnCheckedChangeListener { _, c -> requireParentPin { store.mosqueAutoSilentEnabled = c } }
+        }
+        val swAdhkar = Switch(this).apply {
+            text = if (store.isArabic) "📿 إلزام أذكار بعد الصلاة لفتح الموبايل" else "📿 Require Post-Prayer Adhkar to unlock phone"
+            isChecked = store.postPrayerAdhkarEnabled
+            setTextColor(textPrimary())
+            setOnCheckedChangeListener { _, c -> requireParentPin { store.postPrayerAdhkarEnabled = c } }
+        }
+        ctrlCard.addView(swLock); ctrlCard.addView(swAdhan); ctrlCard.addView(swSilent); ctrlCard.addView(swAdhkar)
 
         ctrlCard.addView(TextView(this).apply { text = "\n${s("prayer_dur_label")} ${store.prayerDurationMinutes} ${s("minutes")}"; setTextColor(Color.parseColor("#10B981")); setTypeface(null, Typeface.BOLD) })
         val durRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(8), 0, dp(4)) }
@@ -455,6 +662,12 @@ class MainActivity : AppCompatActivity() {
                     putExtra("END_MILLIS", System.currentTimeMillis() + store.prayerDurationMinutes * 60_000L)
                 })
             }
+        })
+        ctrlCard.addView(makeBtn(if (store.isArabic) "📿 تجربة شاشة أذكار بعد الصلاة" else "📿 Test Post-Prayer Adhkar Screen", "#059669", "#10B981") {
+            startActivity(Intent(this, LockOverlayActivity::class.java).apply {
+                putExtra("MODE", "ADHKAR_LOCK")
+                putExtra("REASON", if (store.isArabic) "يرجى قراءة أذكار بعد الصلاة لفتح الموبايل" else "Please read Post-Prayer Adhkar to unlock your phone")
+            })
         })
         col.addView(ctrlCard)
 
@@ -622,6 +835,9 @@ class MainActivity : AppCompatActivity() {
             val comp = ComponentName(this, DeviceAdminProtectionReceiver::class.java)
             startActivity(Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN).apply { putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, comp) })
         })
+        permCard.addView(makeBtn(if (store.isArabic) "4️⃣ صلاحية عدم الإزعاج (للوضع الصامت في المسجد)" else "4️⃣ Grant Do Not Disturb Access (Mosque Auto-Silent)", btnNeutralBg(), btnNeutralBg(), btnNeutralFg()) {
+            try { startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)) } catch (_: Exception) { }
+        })
         col.addView(permCard)
 
         val pinCard = makeCard(s("pin_title"))
@@ -641,7 +857,7 @@ class MainActivity : AppCompatActivity() {
 
         // OTA Update Card
         val updCard = makeCard(if (store.isArabic) "🔄 تحديث التطبيق تلقائياً (OTA)" else "🔄 In-App Auto-Update (OTA)", "#0284C7")
-        val repoIn = EditText(this).apply { hint = "Anas-crack/Muslim-keeper"; setTextColor(textPrimary()); setText(store.updateRepo) }
+        val repoIn = EditText(this).apply { hint = "Anas-crack/Muslim-keep-time"; setTextColor(textPrimary()); setText(store.updateRepo) }
         updCard.addView(repoIn)
         updCard.addView(TextView(this).apply { text = (if (store.isArabic) "الإصدار الحالي: v" else "Current Version: v") + UpdateManager.getCurrentVersionName(this@MainActivity); setTextColor(textMuted()); textSize = 12.5f })
         updCard.addView(makeBtn(if (store.isArabic) "🚀 التحقق من التحديثات وتنزيلها" else "🚀 Check & Install Update", "#0284C7", "#0369A1") {

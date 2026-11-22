@@ -39,16 +39,59 @@ class PrefsStore(context: Context) {
 
     fun ensureToday() {
         val today = todayStr()
-        if (prefs.getString("usage_date", "") != today) {
+        val prevDate = prefs.getString("usage_date", "") ?: ""
+        if (prevDate != today) {
+            if (prevDate.isNotEmpty()) {
+                recordDayStats(prevDate, prefs.getInt("phone_seconds_used", 0), prefs.getLong("data_used_today_bytes", 0L))
+            }
             prefs.edit()
                 .putString("usage_date", today)
                 .putInt("phone_seconds_used", 0)
+                .putLong("data_used_today_bytes", 0L)
                 .putBoolean("is_phone_locked_today", false)
                 .putString("lock_reason", "")
                 .apply()
             val rules = getAppRules().map { it.copy(secondsUsedToday = 0, reopenAttempts = 0) }
             saveAppRules(rules)
         }
+    }
+
+    fun recordDayStats(dateKey: String, screenSec: Int, dataBytes: Long) {
+        try {
+            val raw = prefs.getString("daily_history_json", "{}") ?: "{}"
+            val obj = JSONObject(raw)
+            val entry = JSONObject().apply {
+                put("sec", screenSec)
+                put("bytes", dataBytes)
+            }
+            obj.put(dateKey, entry)
+            // Keep last 21 days to keep prefs lightweight
+            val keys = mutableListOf<String>()
+            val it = obj.keys()
+            while (it.hasNext()) keys.add(it.next())
+            keys.sort()
+            while (keys.size > 21) {
+                obj.remove(keys.removeAt(0))
+            }
+            prefs.edit().putString("daily_history_json", obj.toString()).apply()
+        } catch (_: Exception) { }
+    }
+
+    fun getDailyHistoryMap(): Map<String, Pair<Int, Long>> {
+        val map = mutableMapOf<String, Pair<Int, Long>>()
+        try {
+            val raw = prefs.getString("daily_history_json", "{}") ?: "{}"
+            val obj = JSONObject(raw)
+            val it = obj.keys()
+            while (it.hasNext()) {
+                val k = it.next()
+                val e = obj.optJSONObject(k) ?: continue
+                map[k] = Pair(e.optInt("sec", 0), e.optLong("bytes", 0L))
+            }
+        } catch (_: Exception) { }
+        // Always include live today stats
+        map[todayStr()] = Pair(phoneSecondsUsedToday, dataUsedTodayBytes)
+        return map
     }
 
     var userName: String
@@ -75,6 +118,10 @@ class PrefsStore(context: Context) {
         get() { ensureToday(); return prefs.getInt("phone_seconds_used", 0) }
         set(v) = prefs.edit().putInt("phone_seconds_used", v).apply()
 
+    var dataUsedTodayBytes: Long
+        get() { ensureToday(); return prefs.getLong("data_used_today_bytes", 0L) }
+        set(v) = prefs.edit().putLong("data_used_today_bytes", v).apply()
+
     var isPhoneLockedToday: Boolean
         get() { ensureToday(); return prefs.getBoolean("is_phone_locked_today", false) }
         set(v) = prefs.edit().putBoolean("is_phone_locked_today", v).apply()
@@ -90,6 +137,38 @@ class PrefsStore(context: Context) {
     var adhanAudioEnabled: Boolean
         get() = prefs.getBoolean("adhan_audio_enabled", true)
         set(v) = prefs.edit().putBoolean("adhan_audio_enabled", v).apply()
+
+    var mosqueAutoSilentEnabled: Boolean
+        get() = prefs.getBoolean("mosque_auto_silent", true)
+        set(v) = prefs.edit().putBoolean("mosque_auto_silent", v).apply()
+
+    var savedRingerMode: Int
+        get() = prefs.getInt("saved_ringer_mode", -1)
+        set(v) = prefs.edit().putInt("saved_ringer_mode", v).apply()
+
+    var postPrayerAdhkarEnabled: Boolean
+        get() = prefs.getBoolean("post_prayer_adhkar_enabled", true)
+        set(v) = prefs.edit().putBoolean("post_prayer_adhkar_enabled", v).apply()
+
+    var pendingAdhkarPrayerKey: String
+        get() = prefs.getString("pending_adhkar_prayer_key", "") ?: ""
+        set(v) = prefs.edit().putString("pending_adhkar_prayer_key", v).apply()
+
+    var lastAdhkarCompletedKey: String
+        get() = prefs.getString("last_adhkar_completed_key", "") ?: ""
+        set(v) = prefs.edit().putString("last_adhkar_completed_key", v).apply()
+
+    var bedtimeEnabled: Boolean
+        get() = prefs.getBoolean("bedtime_enabled", false)
+        set(v) = prefs.edit().putBoolean("bedtime_enabled", v).apply()
+
+    var bedtimeStartHour: Int
+        get() = prefs.getInt("bedtime_start_hour", 23)
+        set(v) = prefs.edit().putInt("bedtime_start_hour", v).apply()
+
+    var bedtimeEndHour: Int
+        get() = prefs.getInt("bedtime_end_hour", 6)
+        set(v) = prefs.edit().putInt("bedtime_end_hour", v).apply()
 
     var prayerDurationMinutes: Int
         get() = prefs.getInt("prayer_duration_min", 30)
@@ -112,7 +191,7 @@ class PrefsStore(context: Context) {
         set(v) = prefs.edit().putLong("tz", java.lang.Double.doubleToRawLongBits(v)).apply()
 
     var updateRepo: String
-        get() = prefs.getString("update_repo", "") ?: ""
+        get() = prefs.getString("update_repo", "Anas-crack/Muslim-keep-time") ?: "Anas-crack/Muslim-keep-time"
         set(v) = prefs.edit().putString("update_repo", v).apply()
 
     var dataLimitEnabled: Boolean
@@ -177,6 +256,7 @@ class PrefsStore(context: Context) {
             .putInt("phone_seconds_used", 0)
             .putBoolean("is_phone_locked_today", false)
             .putString("lock_reason", "")
+            .putString("pending_adhkar_prayer_key", "")
             .apply()
         saveAppRules(getAppRules().map { it.copy(secondsUsedToday = 0, reopenAttempts = 0) })
     }

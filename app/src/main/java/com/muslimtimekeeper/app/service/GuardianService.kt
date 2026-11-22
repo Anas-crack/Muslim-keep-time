@@ -4,17 +4,16 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
-import android.app.admin.DevicePolicyManager
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
-import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
+import android.net.TrafficStats
+import android.net.VpnService
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import android.net.TrafficStats
-import android.net.VpnService
 import android.os.PowerManager
 import android.telecom.TelecomManager
 import androidx.core.app.NotificationCompat
@@ -22,6 +21,7 @@ import com.muslimtimekeeper.app.R
 import com.muslimtimekeeper.app.core.PrayerCalculator
 import com.muslimtimekeeper.app.core.PrefsStore
 import com.muslimtimekeeper.app.ui.LockOverlayActivity
+import java.util.Calendar
 
 class GuardianService : Service() {
     private val handler = Handler(Looper.getMainLooper())
@@ -30,6 +30,8 @@ class GuardianService : Service() {
     private var lastBlockedPkg: String? = null
     private var lastDetectedPkg: String? = null
     private var prayerUnlockedUntil: Long = 0L
+    private var bedtimeUnlockedUntil: Long = 0L
+    private var lastActivePrayerKey: String = ""
     private var tickCounter = 0
     private val sentAlerts = HashSet<String>()
 
@@ -48,11 +50,22 @@ class GuardianService : Service() {
             store = store,
             onPrayerUnlocked = {
                 prayerUnlockedUntil = System.currentTimeMillis() + (store.prayerDurationMinutes * 60_000L)
+                lastActivePrayerKey = ""
+                restoreRingerMode()
             },
             onPhoneUnlocked = {
                 store.isPhoneLockedToday = false
                 store.lockReason = ""
                 store.phoneSecondsUsedToday = maxOf(0, (store.dailyPhoneLimitMinutes * 60) - 1800)
+            },
+            onBedtimeUnlocked = {
+                bedtimeUnlockedUntil = System.currentTimeMillis() + (60 * 60_000L) // 1 hour parent override
+            },
+            onAdhkarCompleted = {
+                if (store.pendingAdhkarPrayerKey.isNotEmpty()) {
+                    store.lastAdhkarCompletedKey = store.pendingAdhkarPrayerKey
+                    store.pendingAdhkarPrayerKey = ""
+                }
             }
         )
         startForeground(101, buildNotification())
@@ -60,15 +73,31 @@ class GuardianService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == "ACTION_PRAYER_UNLOCKED") {
-            prayerUnlockedUntil = System.currentTimeMillis() + (store.prayerDurationMinutes * 60_000L)
-            overlay.hide()
+        when (intent?.action) {
+            "ACTION_PRAYER_UNLOCKED" -> {
+                prayerUnlockedUntil = System.currentTimeMillis() + (store.prayerDurationMinutes * 60_000L)
+                lastActivePrayerKey = ""
+                restoreRingerMode()
+                overlay.hide()
+            }
+            "ACTION_ADHKAR_COMPLETED" -> {
+                if (store.pendingAdhkarPrayerKey.isNotEmpty()) {
+                    store.lastAdhkarCompletedKey = store.pendingAdhkarPrayerKey
+                    store.pendingAdhkarPrayerKey = ""
+                }
+                overlay.hide()
+            }
+            "ACTION_BEDTIME_UNLOCKED" -> {
+                bedtimeUnlockedUntil = System.currentTimeMillis() + (60 * 60_000L)
+                overlay.hide()
+            }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(tickRunnable)
+        restoreRingerMode()
         overlay.hide()
         super.onDestroy()
     }
@@ -83,10 +112,50 @@ class GuardianService : Service() {
         )
         return NotificationCompat.Builder(this, chId)
             .setContentTitle("Muslim Time Keeper Active")
-            .setContentText("Monitoring screen time, apps, prayer lock & web safety")
+            .setContentText("Monitoring screen time, bedtime, prayer, Adhkar & data quota")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setOngoing(true)
             .build()
+    }
+
+    private fun enableMosqueSilent() {
+        if (!store.mosqueAutoSilentEnabled) return
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (store.savedRingerMode == -1) {
+                store.savedRingerMode = am.ringerMode
+            }
+            if (nm.isNotificationPolicyAccessGranted) {
+                if (am.ringerMode != AudioManager.RINGER_MODE_SILENT) {
+                    am.ringerMode = AudioManager.RINGER_MODE_SILENT
+                }
+            } else {
+                if (am.ringerMode == AudioManager.RINGER_MODE_NORMAL) {
+                    am.ringerMode = AudioManager.RINGER_MODE_VIBRATE
+                }
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun restoreRingerMode() {
+        val prev = store.savedRingerMode
+        if (prev == -1) return
+        try {
+            val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (nm.isNotificationPolicyAccessGranted || prev != AudioManager.RINGER_MODE_SILENT) {
+                am.ringerMode = prev
+            }
+        } catch (_: Exception) { }
+        store.savedRingerMode = -1
+    }
+
+    private fun isInBedtimeWindow(startHour: Int, endHour: Int): Boolean {
+        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+        return if (startHour == endHour) false
+        else if (startHour > endHour) (hour >= startHour || hour < endHour)
+        else (hour in startHour until endHour)
     }
 
     private fun isAllowedCallPackage(pkg: String?): Boolean {
@@ -110,9 +179,6 @@ class GuardianService : Service() {
         return pm.isInteractive
     }
 
-    /**
-     * Accurate real-time foreground app detection using UsageEvents (instantaneous on Android 10-15)
-     */
     private fun getForegroundPackage(): String? {
         val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val end = System.currentTimeMillis()
@@ -174,8 +240,9 @@ class GuardianService : Service() {
         store.lastTrafficSnapshot = totalNow
         if (prev in 1 until totalNow) {
             val delta = totalNow - prev
-            if (delta < 500_000_000L) { // sanity guard against reboot jump
+            if (delta < 500_000_000L) {
                 store.dataUsedBytes = store.dataUsedBytes + delta
+                store.dataUsedTodayBytes = store.dataUsedTodayBytes + delta
             }
         }
 
@@ -219,11 +286,59 @@ class GuardianService : Service() {
     private fun evaluateRules() {
         store.ensureToday()
         if (tickCounter % 3 == 0) updateDataQuotaUsage()
-        if (!isScreenOn()) return
+        if (tickCounter % 60 == 0) {
+            store.recordDayStats(store.todayStr(), store.phoneSecondsUsedToday, store.dataUsedTodayBytes)
+        }
+
+        // Check active prayer even when screen is off so Mosque Auto-Silent works in pocket!
+        val activePrayer = if (store.prayerLockEnabled && System.currentTimeMillis() >= prayerUnlockedUntil) {
+            PrayerCalculator.getActivePrayer(store.latitude, store.longitude, store.timezoneOffset, store.prayerDurationMinutes)
+        } else null
+
+        if (activePrayer != null) {
+            lastActivePrayerKey = "${store.todayStr()}_${activePrayer.name}"
+            enableMosqueSilent()
+        } else {
+            restoreRingerMode()
+            if (lastActivePrayerKey.isNotEmpty()) {
+                if (store.postPrayerAdhkarEnabled && store.lastAdhkarCompletedKey != lastActivePrayerKey) {
+                    store.pendingAdhkarPrayerKey = lastActivePrayerKey
+                    sendPreAlert(
+                        "adhkar_$lastActivePrayerKey",
+                        if (store.isArabic) "📿 يرجى قراءة أذكار بعد الصلاة لفتح الموبايل" else "📿 Please read Post-Prayer Adhkar to unlock your phone"
+                    )
+                }
+                lastActivePrayerKey = ""
+            }
+        }
+
+        if (!isScreenOn()) {
+            tickCounter++
+            return
+        }
 
         val fg = getForegroundPackage()
 
-        // 1. Persistent Phone Lock (ALWAYS blocks every app EXCEPT phone calls!)
+        // 1. Bedtime Lock (Allows Emergency Phone Calls Only)
+        if (store.bedtimeEnabled &&
+            isInBedtimeWindow(store.bedtimeStartHour, store.bedtimeEndHour) &&
+            System.currentTimeMillis() >= bedtimeUnlockedUntil
+        ) {
+            if (isAllowedCallPackage(fg)) {
+                overlay.hide()
+            } else {
+                val windowStr = String.format("%02d:00 — %02d:00", store.bedtimeStartHour, store.bedtimeEndHour)
+                val reason = if (store.isArabic)
+                    "حان وقت النوم المجدول ($windowStr). المكالمات الطارئة متاحة دائماً."
+                else
+                    "Scheduled Bedtime ($windowStr). Emergency phone calls remain available."
+                enforceLockOverlay("BEDTIME_LOCK", reason, 0L)
+            }
+            tickCounter++
+            return
+        }
+
+        // 2. Persistent Daily Phone Lock (Allows Emergency Phone Calls Only)
         if (store.isPhoneLockedToday) {
             if (isAllowedCallPackage(fg)) {
                 overlay.hide()
@@ -233,10 +348,39 @@ class GuardianService : Service() {
                 }
                 enforceLockOverlay("PHONE_LOCK", reason, 0L)
             }
+            tickCounter++
             return
         }
 
-        // 2. Daily Phone Limit (counts every 1 second while screen is ON)
+        // 3. Prayer Time Lock + Calm Tasbeeh + Adhan (Allows Emergency Phone Calls Only)
+        val nxtP = PrayerCalculator.getNextPrayer(store.latitude, store.longitude, store.timezoneOffset, store.isArabic)
+        val secToPr = ((nxtP.second - System.currentTimeMillis()) / 1000L).toInt()
+        if (secToPr in 301..600) sendPreAlert("pr10_${nxtP.first}", if (store.isArabic) "اقترب موعد صلاة ${nxtP.first} — متبقي 10 دقائق!" else "${nxtP.first} prayer is in 10 minutes!")
+        if (secToPr in 1..300) sendPreAlert("pr5_${nxtP.first}", if (store.isArabic) "متبقي 5 دقائق على صلاة ${nxtP.first}!" else "${nxtP.first} prayer is in 5 minutes!")
+        if (activePrayer != null) {
+            if (isAllowedCallPackage(fg)) {
+                overlay.hide()
+            } else {
+                val msg = if (store.isArabic) "حان الآن موعد صلاة ${PrayerCalculator.localizedName(activePrayer.name, store.isArabic)}" else "${PrayerCalculator.localizedName(activePrayer.name, store.isArabic)} Prayer Time"
+                enforceLockOverlay("PRAYER_LOCK", msg, activePrayer.endMillis)
+            }
+            tickCounter++
+            return
+        }
+
+        // 4. Mandatory Post-Prayer Adhkar Gate (Allows Emergency Phone Calls Only)
+        if (store.postPrayerAdhkarEnabled && store.pendingAdhkarPrayerKey.isNotEmpty()) {
+            if (isAllowedCallPackage(fg)) {
+                overlay.hide()
+            } else {
+                val msg = if (store.isArabic) "يرجى قراءة أذكار بعد الصلاة لفتح الموبايل" else "Please read Post-Prayer Adhkar to unlock your phone"
+                enforceLockOverlay("ADHKAR_LOCK", msg, 0L)
+            }
+            tickCounter++
+            return
+        }
+
+        // 5. Daily Phone Limit Counter (counts every 1 second while screen is ON)
         val used = store.phoneSecondsUsedToday + 1
         store.phoneSecondsUsedToday = used
         val remSec = (store.dailyPhoneLimitMinutes * 60) - used
@@ -246,30 +390,11 @@ class GuardianService : Service() {
             store.isPhoneLockedToday = true
             store.lockReason = if (store.isArabic) "انتهى الحد اليومي المسموح لاستخدام الهاتف." else "Daily phone screen time limit has been reached."
             enforceLockOverlay("PHONE_LOCK", store.lockReason, 0L)
+            tickCounter++
             return
         }
 
-        // 3. Prayer Time Lock + Adhan
-        val nxtP = PrayerCalculator.getNextPrayer(store.latitude, store.longitude, store.timezoneOffset, store.isArabic)
-        val secToPr = ((nxtP.second - System.currentTimeMillis()) / 1000L).toInt()
-        if (secToPr in 301..600) sendPreAlert("pr10_${nxtP.first}", if (store.isArabic) "اقترب موعد صلاة ${nxtP.first} — متبقي 10 دقائق!" else "${nxtP.first} prayer is in 10 minutes!")
-        if (secToPr in 1..300) sendPreAlert("pr5_${nxtP.first}", if (store.isArabic) "متبقي 5 دقائق على صلاة ${nxtP.first}!" else "${nxtP.first} prayer is in 5 minutes!")
-        if (store.prayerLockEnabled && System.currentTimeMillis() >= prayerUnlockedUntil) {
-            val active = PrayerCalculator.getActivePrayer(
-                store.latitude, store.longitude, store.timezoneOffset, store.prayerDurationMinutes
-            )
-            if (active != null) {
-                if (isAllowedCallPackage(fg)) {
-                    overlay.hide()
-                } else {
-                    val msg = if (store.isArabic) "حان الآن موعد صلاة ${PrayerCalculator.localizedName(active.name, store.isArabic)}" else "${PrayerCalculator.localizedName(active.name, store.isArabic)} Prayer Time"
-                    enforceLockOverlay("PRAYER_LOCK", msg, active.endMillis)
-                }
-                return
-            }
-        }
-
-        // 4. Per-App Limits & Reopen Escalation (every 2 seconds)
+        // 6. Per-App Limits & Reopen Escalation (every 2 seconds)
         tickCounter++
         if (tickCounter % 2 != 0) return
         if (fg == null || fg == packageName) return
