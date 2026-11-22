@@ -512,9 +512,7 @@ class MainActivity : AppCompatActivity() {
         )
 
         box.addView(TextView(this).apply {
-            text = if (ar) "
-🏆 أكثر 5 تطبيقات استخداماً هذا الأسبوع:" else "
-🏆 Top 5 Most Used Apps This Week:"
+            text = if (ar) "\n🏆 أكثر 5 تطبيقات استخداماً هذا الأسبوع:" else "\n🏆 Top 5 Most Used Apps This Week:"
             textSize = 14f; setTypeface(null, Typeface.BOLD); setTextColor(textPrimary())
             setPadding(0, dp(4), 0, dp(8))
         })
