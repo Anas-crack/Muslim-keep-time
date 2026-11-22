@@ -13,6 +13,8 @@ import android.content.Intent
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.net.TrafficStats
+import android.net.VpnService
 import android.os.PowerManager
 import android.telecom.TelecomManager
 import androidx.core.app.NotificationCompat
@@ -163,8 +165,60 @@ class GuardianService : Service() {
         nm.notify(key.hashCode(), notif)
     }
 
+    private fun updateDataQuotaUsage() {
+        val rx = TrafficStats.getTotalRxBytes()
+        val tx = TrafficStats.getTotalTxBytes()
+        if (rx < 0 || tx < 0) return
+        val totalNow = rx + tx
+        val prev = store.lastTrafficSnapshot
+        store.lastTrafficSnapshot = totalNow
+        if (prev in 1 until totalNow) {
+            val delta = totalNow - prev
+            if (delta < 500_000_000L) { // sanity guard against reboot jump
+                store.dataUsedBytes = store.dataUsedBytes + delta
+            }
+        }
+
+        if (!store.dataLimitEnabled) {
+            if (store.isInternetBlockedByQuota) {
+                store.isInternetBlockedByQuota = false
+                if (store.webSafetyEnabled) startService(Intent(this, SafeDnsVpnService::class.java).apply { action = "SAFE_DNS" })
+                else startService(Intent(this, SafeDnsVpnService::class.java).apply { action = "STOP_VPN" })
+            }
+            return
+        }
+
+        val limitBytes = store.dataLimitMb.toLong() * 1024L * 1024L
+        if (limitBytes <= 0L) return
+        val usedBytes = store.dataUsedBytes
+        val pct = (usedBytes * 100L) / limitBytes
+
+        if (pct in 80..94) {
+            sendPreAlert("data_80", if (store.isArabic) "استهلكت 80% من باقة الإنترنت المحددة لهذا الجهاز!" else "You have used 80% of this device's internet quota!")
+        } else if (pct in 95..99) {
+            sendPreAlert("data_95", if (store.isArabic) "تبقّى أقل من 5% من باقة الإنترنت المحددة لهذا الجهاز!" else "Less than 5% left of this device's internet quota!")
+        }
+
+        if (usedBytes >= limitBytes) {
+            if (!store.isInternetBlockedByQuota) {
+                store.isInternetBlockedByQuota = true
+                sendPreAlert("data_100", if (store.isArabic) "انتهت حصة الإنترنت المحددة! تم قطع الإنترنت لحين موافقة الوالدين." else "Internet data quota reached! Internet paused until parent approves.")
+                if (VpnService.prepare(this) == null) {
+                    startService(Intent(this, SafeDnsVpnService::class.java).apply { action = "BLOCK_ALL" })
+                }
+            }
+        } else if (store.isInternetBlockedByQuota) {
+            store.isInternetBlockedByQuota = false
+            if (VpnService.prepare(this) == null) {
+                if (store.webSafetyEnabled) startService(Intent(this, SafeDnsVpnService::class.java).apply { action = "SAFE_DNS" })
+                else startService(Intent(this, SafeDnsVpnService::class.java).apply { action = "STOP_VPN" })
+            }
+        }
+    }
+
     private fun evaluateRules() {
         store.ensureToday()
+        if (tickCounter % 3 == 0) updateDataQuotaUsage()
         if (!isScreenOn()) return
 
         val fg = getForegroundPackage()
