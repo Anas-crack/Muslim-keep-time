@@ -115,26 +115,6 @@ class PrefsStore(context: Context) {
         get() = prefs.getString("update_repo", "") ?: ""
         set(v) = prefs.edit().putString("update_repo", v).apply()
 
-    var dataLimitEnabled: Boolean
-        get() = prefs.getBoolean("data_limit_enabled", false)
-        set(v) = prefs.edit().putBoolean("data_limit_enabled", v).apply()
-
-    var dataLimitMb: Int
-        get() = prefs.getInt("data_limit_mb", 2048) // Default 2 GB
-        set(v) = prefs.edit().putInt("data_limit_mb", v).apply()
-
-    var dataUsedBytes: Long
-        get() = prefs.getLong("data_used_bytes", 0L)
-        set(v) = prefs.edit().putLong("data_used_bytes", v).apply()
-
-    var lastTrafficSnapshot: Long
-        get() = prefs.getLong("last_traffic_snapshot", -1L)
-        set(v) = prefs.edit().putLong("last_traffic_snapshot", v).apply()
-
-    var isInternetBlockedByQuota: Boolean
-        get() = prefs.getBoolean("internet_blocked_quota", false)
-        set(v) = prefs.edit().putBoolean("internet_blocked_quota", v).apply()
-
     var webSafetyEnabled: Boolean
         get() = prefs.getBoolean("web_safety_enabled", false)
         set(v) = prefs.edit().putBoolean("web_safety_enabled", v).apply()
