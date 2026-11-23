@@ -1052,26 +1052,33 @@ class MainActivity : AppCompatActivity() {
         pageCard.addView(pageImg)
         col.addView(pageCard)
 
-        Thread {
-            val res = QuranData.loadMushafPage(this, curPage)
-            uiHandler.post {
-                if (res.bitmap != null) {
-                    pageImg.setImageBitmap(res.bitmap)
-                    pageImg.visibility = View.VISIBLE
-                    statusTv.visibility = View.GONE
-                } else if (!res.fallbackText.isNullOrEmpty()) {
-                    statusTv.text = res.fallbackText
-                    statusTv.textSize = 20f
-                    statusTv.setLineSpacing(dp(10).toFloat(), 1.15f)
-                    statusTv.setTextColor(if (store.mushafNightMode) Color.parseColor("#F8FAFC") else Color.parseColor("#1E293B"))
-                    statusTv.gravity = Gravity.CENTER
-                    statusTv.setPadding(dp(12), dp(14), dp(12), dp(14))
-                } else {
-                    statusTv.text = if (ar) "تعذّر تحميل الصفحة — تأكد من اتصال الإنترنت لأول مرة (يتم حفظ كل صفحة تلقائياً للقراءة بدون إنترنت لاحقاً)."
-                    else "Could not load page — check internet connection for first-time download (pages are cached offline automatically)."
-                }
+        fun applyMushafResult(res: com.muslimtimekeeper.app.core.MushafPageResult) {
+            if (res.bitmap != null) {
+                pageImg.setImageBitmap(res.bitmap)
+                pageImg.visibility = View.VISIBLE
+                statusTv.visibility = View.GONE
+            } else if (!res.fallbackText.isNullOrEmpty()) {
+                statusTv.text = res.fallbackText
+                statusTv.textSize = 20f
+                statusTv.setLineSpacing(dp(10).toFloat(), 1.15f)
+                statusTv.setTextColor(if (store.mushafNightMode) Color.parseColor("#F8FAFC") else Color.parseColor("#1E293B"))
+                statusTv.gravity = Gravity.CENTER
+                statusTv.setPadding(dp(12), dp(14), dp(12), dp(14))
+            } else {
+                statusTv.text = if (ar) "تعذّر تحميل الصفحة — تأكد من اتصال الإنترنت لأول مرة (يتم حفظ كل صفحة تلقائياً للقراءة بدون إنترنت لاحقاً)."
+                else "Could not load page — check internet connection for first-time download (pages are cached offline automatically)."
             }
-        }.start()
+        }
+
+        val instant = QuranData.getCachedPageInstant(this, curPage)
+        if (instant != null) {
+            applyMushafResult(instant)
+        } else {
+            Thread {
+                val res = QuranData.loadMushafPage(this, curPage)
+                uiHandler.post { applyMushafResult(res) }
+            }.start()
+        }
 
         // 3. Previous / Next Page Navigation Row
         val navRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
