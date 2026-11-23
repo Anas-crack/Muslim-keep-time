@@ -13,6 +13,7 @@ import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
 import android.net.Uri
 import android.net.VpnService
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -22,6 +23,7 @@ import android.text.InputType
 import android.text.TextWatcher
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -45,6 +47,7 @@ class MainActivity : AppCompatActivity() {
     private var parentUnlocked = false
     private var currentTab = 0
     private var testPlayer: MediaPlayer? = null
+    private var prayerWaveView: AdhanWaveView? = null
     private lateinit var contentContainer: FrameLayout
     private lateinit var navButtons: List<TextView>
     private lateinit var lockStatusChip: TextView
@@ -68,18 +71,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Dynamic Dark / Light Palette matching user's reference screenshots
-    private fun bgCanvas(): Int = Color.parseColor(if (store.isDarkMode) "#081110" else "#F4F7FA")
-    private fun bgBar(): Int = Color.parseColor(if (store.isDarkMode) "#0C1816" else "#FFFFFF")
-    private fun bgCard(): Int = Color.parseColor(if (store.isDarkMode) "#111E1C" else "#FFFFFF")
-    private fun borderCol(): Int = Color.parseColor(if (store.isDarkMode) "#1F3430" else "#E2E8F0")
+    // Translucent Frosted Glass (Glassmorphism Wallpaper Blur) Palette — Dark & Light Glass
+    private fun bgCanvas(): Int = Color.parseColor(if (store.isDarkMode) "#7807111F" else "#96EBF3F9")
+    private fun bgBar(): Int = Color.parseColor(if (store.isDarkMode) "#99091526" else "#B8FFFFFF")
+    private fun bgCard(): Int = Color.parseColor(if (store.isDarkMode) "#6E0F2036" else "#99FFFFFF")
+    private fun borderCol(): Int = Color.parseColor(if (store.isDarkMode) "#447DD3FC" else "#6694A3B8")
     private fun textPrimary(): Int = Color.parseColor(if (store.isDarkMode) "#F8FAFC" else "#0F172A")
-    private fun textMuted(): Int = Color.parseColor(if (store.isDarkMode) "#94A3B8" else "#64748B")
-    private fun btnNeutralBg(): String = if (store.isDarkMode) "#1B2E2B" else "#E2E8F0"
+    private fun textMuted(): Int = Color.parseColor(if (store.isDarkMode) "#CBD5E1" else "#475569")
+    private fun btnNeutralBg(): String = if (store.isDarkMode) "#661E293B" else "#88E2E8F0"
     private fun btnNeutralFg(): String = if (store.isDarkMode) "#F8FAFC" else "#0F172A"
+    private fun accentCol(): Int = Color.parseColor(if (store.isDarkMode) "#38BDF8" else "#0284C7")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                window.attributes = window.attributes.apply { blurBehindRadius = 60 }
+                window.setBackgroundBlurRadius(55)
+            } catch (_: Exception) { }
+        }
         store = PrefsStore(this)
         ContextCompat.startForegroundService(this, Intent(this, GuardianService::class.java))
         buildShell()
@@ -180,7 +191,7 @@ class MainActivity : AppCompatActivity() {
 
         val langBtn = TextView(this).apply {
             text = if (store.isArabic) "EN" else "عربي"
-            textSize = 12f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#059669"))
+            textSize = 12f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol())
             background = gradientBg(btnNeutralBg(), btnNeutralBg(), 10); setPadding(dp(10), dp(6), dp(10), dp(6))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6) }
             setOnClickListener { store.isArabic = !store.isArabic; buildShell(); renderTab(currentTab) }
@@ -216,8 +227,8 @@ class MainActivity : AppCompatActivity() {
         liveTimerTv = null; livePctTv = null; liveBar = null
         navButtons.forEachIndexed { i, tv ->
             if (i == index) {
-                tv.background = gradientBg(if (store.isDarkMode) "#133A31" else "#D1FAE5", if (store.isDarkMode) "#133A31" else "#D1FAE5", 12)
-                tv.setTextColor(Color.parseColor("#059669"))
+                tv.background = gradientBg(if (store.isDarkMode) "#4438BDF8" else "#550284C7", if (store.isDarkMode) "#4438BDF8" else "#550284C7", 12)
+                tv.setTextColor(accentCol())
             } else {
                 tv.background = null; tv.setTextColor(textMuted())
             }
@@ -249,7 +260,7 @@ class MainActivity : AppCompatActivity() {
             orientation = LinearLayout.VERTICAL; background = cardBg(borderHex); setPadding(dp(16), dp(16), dp(16), dp(16))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(14) }
             if (title != null) addView(TextView(this@MainActivity).apply {
-                text = title; textSize = 15f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#10B981")); setPadding(0, 0, 0, dp(10))
+                text = title; textSize = 15f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol()); setPadding(0, 0, 0, dp(10))
             })
         }
     }
@@ -270,7 +281,7 @@ class MainActivity : AppCompatActivity() {
         // 1. Emerald Hero Greeting Card
         val hero = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            background = gradientBg("#047857", "#0D9488", 22)
+            background = gradientBg(if (store.isDarkMode) "#880F2942" else "#B80284C7", if (store.isDarkMode) "#780C4A6E" else "#A80369A1", 22).apply { setStroke(dp(1), Color.parseColor("#557DD3FC")) }
             setPadding(dp(18), dp(18), dp(18), dp(18))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(16) }
         }
@@ -646,11 +657,26 @@ class MainActivity : AppCompatActivity() {
         }
         ctrlCard.addView(durRow)
 
+        prayerWaveView = AdhanWaveView(this).apply {
+            isPlayingWave = (testPlayer?.isPlaying == true)
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(48)).apply {
+                topMargin = dp(10); bottomMargin = dp(4)
+            }
+        }
+        ctrlCard.addView(prayerWaveView)
         ctrlCard.addView(makeBtn(s("test_adhan"), "#D97706", "#F59E0B") {
-            try { testPlayer?.release(); testPlayer = MediaPlayer.create(this, R.raw.adhan); testPlayer?.start() } catch (_: Exception) { }
+            try {
+                testPlayer?.stop(); testPlayer?.release()
+                testPlayer = MediaPlayer.create(this, R.raw.adhan)
+                testPlayer?.setOnCompletionListener { prayerWaveView?.isPlayingWave = false }
+                testPlayer?.start()
+                prayerWaveView?.isPlayingWave = true
+            } catch (_: Exception) { }
         })
         ctrlCard.addView(makeBtn(s("stop"), btnNeutralBg(), btnNeutralBg(), btnNeutralFg()) {
-            testPlayer?.stop(); testPlayer?.release(); testPlayer = null
+            try { testPlayer?.stop(); testPlayer?.release() } catch (_: Exception) { }
+            testPlayer = null
+            prayerWaveView?.isPlayingWave = false
         })
         ctrlCard.addView(makeBtn(s("test_lock"), "#0D9488", "#0284C7") {
             requireParentPin {
@@ -670,7 +696,7 @@ class MainActivity : AppCompatActivity() {
         col.addView(ctrlCard)
 
         val fmt = SimpleDateFormat("hh:mm a", Locale.US)
-        val times = PrayerCalculator.calculateToday(store.latitude, store.longitude, store.timezoneOffset)
+        val times = PrayerCalculator.calculateDisplayTimes(store.latitude, store.longitude, store.timezoneOffset)
         for ((enName, cal) in times) {
             val rowCard = makeCard()
             val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }

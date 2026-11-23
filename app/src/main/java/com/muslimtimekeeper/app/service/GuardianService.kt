@@ -355,8 +355,8 @@ class GuardianService : Service() {
         // 3. Prayer Time Lock + Calm Tasbeeh + Adhan (Allows Emergency Phone Calls Only)
         val nxtP = PrayerCalculator.getNextPrayer(store.latitude, store.longitude, store.timezoneOffset, store.isArabic)
         val secToPr = ((nxtP.second - System.currentTimeMillis()) / 1000L).toInt()
-        if (secToPr in 301..600) sendPreAlert("pr10_${nxtP.first}", if (store.isArabic) "اقترب موعد صلاة ${nxtP.first} — متبقي 10 دقائق!" else "${nxtP.first} prayer is in 10 minutes!")
-        if (secToPr in 1..300) sendPreAlert("pr5_${nxtP.first}", if (store.isArabic) "متبقي 5 دقائق على صلاة ${nxtP.first}!" else "${nxtP.first} prayer is in 5 minutes!")
+        if (secToPr in 121..300) sendPreAlert("pr5_${nxtP.first}", if (store.isArabic) "🕌 الصلاة القادمة هي ${nxtP.first} — متبقي 5 دقائق!" else "🕌 Next prayer is ${nxtP.first} — 5 minutes left!")
+        if (secToPr in 1..120) sendPreAlert("pr2_${nxtP.first}", if (store.isArabic) "🕌 الصلاة القادمة هي ${nxtP.first} — متبقي دقيقتان فقط!" else "🕌 Next prayer is ${nxtP.first} — only 2 minutes left!")
         if (activePrayer != null) {
             if (isAllowedCallPackage(fg)) {
                 overlay.hide()

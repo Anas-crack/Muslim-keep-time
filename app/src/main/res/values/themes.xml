@@ -3,8 +3,9 @@
     <style name="Theme.MuslimTimeKeeper" parent="Theme.Material3.Dark.NoActionBar">
         <item name="colorPrimary">@color/emerald</item>
         <item name="colorSecondary">@color/gold</item>
-        <item name="android:windowBackground">@color/bg_main</item>
-        <item name="android:statusBarColor">@color/bg_nav</item>
-        <item name="android:navigationBarColor">@color/bg_nav</item>
+        <item name="android:windowShowWallpaper">true</item>
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:statusBarColor">#5506101C</item>
+        <item name="android:navigationBarColor">#7706101C</item>
     </style>
 </resources>

@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
@@ -20,12 +21,17 @@ import com.muslimtimekeeper.app.R
 import com.muslimtimekeeper.app.core.AdhkarData
 import com.muslimtimekeeper.app.core.PrefsStore
 import com.muslimtimekeeper.app.core.Strings
+import com.muslimtimekeeper.app.ui.AdhanWaveView
+import com.muslimtimekeeper.app.ui.BeadTasbeehView
+import java.util.Locale
 
 /**
- * True System-Level Overlay Lock using WindowManager (TYPE_APPLICATION_OVERLAY).
- * Supports PRAYER_LOCK (with calm electronic Tasbeeh), ADHKAR_LOCK (mandatory post-prayer Adhkar),
- * BEDTIME_LOCK (overnight sleep lock), PHONE_LOCK, and APP_BLOCKED.
- * Emergency phone calls remain accessible in all full-phone lock modes.
+ * True System-Level Frosted-Glass Overlay Lock using WindowManager (TYPE_APPLICATION_OVERLAY).
+ * Features:
+ * - Realistic falling-bead Tasbeeh (BeadTasbeehView)
+ * - Voice-recorder Adhan Sound Wave (AdhanWaveView)
+ * - Built-in Arabic/English Voice Reader (TextToSpeech) for children on Post-Prayer Adhkar
+ * - Emergency phone calls always accessible
  */
 class SystemOverlayBlocker(
     private val context: Context,
@@ -40,6 +46,9 @@ class SystemOverlayBlocker(
     private var overlayView: View? = null
     private var currentMode: String? = null
     private var mediaPlayer: MediaPlayer? = null
+    private var waveView: AdhanWaveView? = null
+    private var tts: TextToSpeech? = null
+    private var voiceEnabled: Boolean = true
     private var timerTv: TextView? = null
     private var endMillis: Long = 0L
 
@@ -59,12 +68,44 @@ class SystemOverlayBlocker(
 
     fun canDrawOverlay(): Boolean = Settings.canDrawOverlays(context)
 
-    private fun cardBg(fillHex: String, strokeHex: String, radius: Float = 28f): GradientDrawable {
+    private fun glassCardBg(fillHex: String, strokeHex: String, radius: Float = 28f): GradientDrawable {
         return GradientDrawable().apply {
             setColor(Color.parseColor(fillHex))
             cornerRadius = radius
-            setStroke(3, Color.parseColor(strokeHex))
+            setStroke(2, Color.parseColor(strokeHex))
         }
+    }
+
+    private fun initTtsAndSpeak(ar: Boolean, initialText: String) {
+        stopTts()
+        try {
+            tts = TextToSpeech(context) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    val loc = if (ar) Locale("ar", "EG") else Locale.US
+                    val res = tts?.setLanguage(loc)
+                    if (ar && (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED)) {
+                        tts?.setLanguage(Locale("ar"))
+                    }
+                    tts?.setSpeechRate(0.88f)
+                    if (voiceEnabled) speakDhikr(initialText)
+                }
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun speakDhikr(text: String) {
+        if (!voiceEnabled) return
+        try {
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "dhikr_${System.currentTimeMillis()}")
+        } catch (_: Exception) { }
+    }
+
+    private fun stopTts() {
+        try {
+            tts?.stop()
+            tts?.shutdown()
+            tts = null
+        } catch (_: Exception) { }
     }
 
     fun show(mode: String, reason: String, prayerEndMillis: Long = 0L) {
@@ -80,9 +121,9 @@ class SystemOverlayBlocker(
         val isBedtime = (mode == "BEDTIME_LOCK")
 
         val bgColors = when {
-            isPrayer || isAdhkar -> intArrayOf(Color.parseColor("#041F17"), Color.parseColor("#0B3B2E"), Color.parseColor("#070B14"))
-            isBedtime -> intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#1E1B4B"), Color.parseColor("#070B14"))
-            else -> intArrayOf(Color.parseColor("#2A0C12"), Color.parseColor("#180A0E"), Color.parseColor("#070B14"))
+            isPrayer || isAdhkar -> intArrayOf(Color.parseColor("#CC081526"), Color.parseColor("#DD0F2438"), Color.parseColor("#EE070E1A"))
+            isBedtime -> intArrayOf(Color.parseColor("#CC0F172A"), Color.parseColor("#DD1E1B4B"), Color.parseColor("#EE070B14"))
+            else -> intArrayOf(Color.parseColor("#CC2A0C12"), Color.parseColor("#DD180A0E"), Color.parseColor("#EE070B14"))
         }
 
         val scroll = ScrollView(context).apply {
@@ -94,12 +135,12 @@ class SystemOverlayBlocker(
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(48, 56, 48, 56)
+            setPadding(44, 52, 44, 52)
         }
 
         val logo = ImageView(context).apply {
             setImageResource(R.drawable.app_logo)
-            layoutParams = LinearLayout.LayoutParams(160, 160).apply { bottomMargin = 16 }
+            layoutParams = LinearLayout.LayoutParams(144, 144).apply { bottomMargin = 14 }
         }
 
         val title = TextView(context).apply {
@@ -110,7 +151,7 @@ class SystemOverlayBlocker(
                 "APP_BLOCKED" -> Strings.get(ar, "app_blocked_title")
                 else -> Strings.get(ar, "phone_locked_title")
             }
-            textSize = 24f
+            textSize = 23f
             setTypeface(null, Typeface.BOLD)
             setTextColor(
                 when {
@@ -128,10 +169,10 @@ class SystemOverlayBlocker(
                 isAdhkar -> if (ar) "يرجى قراءة أذكار بعد الصلاة لفتح الموبايل" else "Please read Post-Prayer Adhkar to unlock your phone"
                 else -> reason
             }
-            textSize = 14.5f
+            textSize = 14f
             setTextColor(Color.parseColor("#E2E8F0"))
             gravity = Gravity.CENTER
-            setPadding(0, 12, 0, 16)
+            setPadding(0, 10, 0, 14)
         }
 
         root.addView(logo)
@@ -141,14 +182,22 @@ class SystemOverlayBlocker(
         if (isPrayer) {
             timerTv = TextView(context).apply {
                 text = "${store.prayerDurationMinutes}:00"
-                textSize = 42f
+                textSize = 40f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.parseColor("#F59E0B"))
                 gravity = Gravity.CENTER
             }
             root.addView(timerTv)
 
-            // Calm Electronic Tasbeeh card during prayer break
+            // Live Adhan Sound Wave
+            waveView = AdhanWaveView(context).apply {
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 76).apply {
+                    topMargin = 6; bottomMargin = 10
+                }
+            }
+            root.addView(waveView)
+
+            // Realistic Falling-Bead Tasbeeh Card
             val phrases = if (ar) AdhkarData.tasbeehPhrasesAr else AdhkarData.tasbeehPhrasesEn
             var phraseIdx = 0
             var tasbeehCount = 0
@@ -156,17 +205,11 @@ class SystemOverlayBlocker(
             val tasbeehCard = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                background = cardBg("#0D2E25", "#10B981", 28f)
-                setPadding(28, 22, 28, 22)
+                background = glassCardBg("#55102A3E", "#5538BDF8", 28f)
+                setPadding(24, 18, 24, 18)
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = 14; bottomMargin = 14
+                    topMargin = 8; bottomMargin = 12
                 }
-            }
-            val tasbeehLbl = TextView(context).apply {
-                text = if (ar) "📿 سبحة إلكترونية هادئة" else "📿 Calm Tasbeeh"
-                textSize = 12f
-                setTextColor(Color.parseColor("#6EE7B7"))
-                gravity = Gravity.CENTER
             }
             val phraseTv = TextView(context).apply {
                 text = phrases[0]
@@ -174,56 +217,43 @@ class SystemOverlayBlocker(
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
-                setPadding(0, 8, 0, 6)
             }
             val countTv = TextView(context).apply {
-                text = "0"
-                textSize = 26f
-                setTypeface(null, Typeface.BOLD)
+                text = if (ar) "العدد: 0  (اضغط على حبات السبحة)" else "Count: 0  (Tap the beads)"
+                textSize = 14f
                 setTextColor(Color.parseColor("#F59E0B"))
                 gravity = Gravity.CENTER
+                setPadding(0, 4, 0, 6)
             }
-            val rowBtns = LinearLayout(context).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = 10
-                }
-            }
-            val btnTap = Button(context).apply {
-                text = if (ar) "سبّح (+1)" else "Tap (+1)"
-                setBackgroundColor(Color.parseColor("#10B981"))
-                setTextColor(Color.parseColor("#06281E"))
-                isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f).apply { marginEnd = 8 }
-                setOnClickListener {
+            val beadView = BeadTasbeehView(context).apply {
+                layoutParams = LinearLayout.LayoutParams(200, 260)
+                onBeadTapped = {
                     tasbeehCount++
-                    countTv.text = "$tasbeehCount"
+                    countTv.text = if (ar) "العدد: $tasbeehCount" else "Count: $tasbeehCount"
                 }
             }
             val btnNextPhrase = Button(context).apply {
-                text = if (ar) "ذكر آخر ↻" else "Next ↻"
-                setBackgroundColor(Color.parseColor("#1E293B"))
+                text = if (ar) "تغيير الذكر ↻" else "Next Dhikr ↻"
+                setBackgroundColor(Color.parseColor("#33FFFFFF"))
                 setTextColor(Color.WHITE)
                 isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 8 }
                 setOnClickListener {
                     phraseIdx = (phraseIdx + 1) % phrases.size
                     tasbeehCount = 0
                     phraseTv.text = phrases[phraseIdx]
-                    countTv.text = "0"
+                    countTv.text = if (ar) "العدد: 0" else "Count: 0"
                 }
             }
-            rowBtns.addView(btnTap)
-            rowBtns.addView(btnNextPhrase)
-            tasbeehCard.addView(tasbeehLbl)
             tasbeehCard.addView(phraseTv)
             tasbeehCard.addView(countTv)
-            tasbeehCard.addView(rowBtns)
+            tasbeehCard.addView(beadView)
+            tasbeehCard.addView(btnNextPhrase)
             root.addView(tasbeehCard)
 
             val btnMute = Button(context).apply {
                 text = Strings.get(ar, "mute_adhan")
-                setBackgroundColor(Color.parseColor("#334155"))
+                setBackgroundColor(Color.parseColor("#44334155"))
                 setTextColor(Color.WHITE)
                 isAllCaps = false
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
@@ -238,72 +268,121 @@ class SystemOverlayBlocker(
             val items = AdhkarData.postPrayerAdhkar
             var idx = 0
             var left = items[0].targetCount
+            voiceEnabled = true
 
             val adhkarCard = LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                background = cardBg("#0D2E25", "#10B981", 30f)
-                setPadding(30, 26, 30, 26)
+                background = glassCardBg("#55102A3E", "#5538BDF8", 30f)
+                setPadding(26, 22, 26, 22)
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = 8; bottomMargin = 16
+                    topMargin = 6; bottomMargin = 14
                 }
             }
             val stepTv = TextView(context).apply {
                 text = "${idx + 1} / ${items.size}"
                 textSize = 13f
-                setTextColor(Color.parseColor("#6EE7B7"))
+                setTextColor(Color.parseColor("#7DD3FC"))
                 gravity = Gravity.CENTER
             }
             val dhikrTv = TextView(context).apply {
                 text = if (ar) items[0].arText else items[0].enText
-                textSize = 19f
+                textSize = 17.5f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
-                setPadding(0, 14, 0, 14)
+                setPadding(0, 10, 0, 10)
             }
             val remTv = TextView(context).apply {
                 text = if (ar) "المتبقي: $left" else "Remaining: $left"
-                textSize = 22f
+                textSize = 20f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.parseColor("#F59E0B"))
                 gravity = Gravity.CENTER
-                setPadding(0, 0, 0, 14)
             }
-            val btnRead = Button(context).apply {
-                text = if (ar) "📿 اضغط بعد القراءة / التسبيح" else "📿 Tap After Reading"
-                setBackgroundColor(Color.parseColor("#10B981"))
-                setTextColor(Color.parseColor("#06281E"))
-                textSize = 16f
-                setTypeface(null, Typeface.BOLD)
-                isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                setOnClickListener {
-                    left--
-                    if (left <= 0) {
-                        idx++
-                        if (idx >= items.size) {
-                            Toast.makeText(
-                                context,
-                                if (ar) "تقبّل الله طاعتك! تم فتح الهاتف." else "May Allah accept your prayers! Phone unlocked.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            hide()
-                            onAdhkarCompleted()
-                            return@setOnClickListener
-                        }
-                        left = items[idx].targetCount
-                        stepTv.text = "${idx + 1} / ${items.size}"
-                        dhikrTv.text = if (ar) items[idx].arText else items[idx].enText
-                    }
-                    remTv.text = if (ar) "المتبقي: $left" else "Remaining: $left"
+
+            // Voice Controls Row (Auto-read for Kids + Replay)
+            val voiceRow = LinearLayout(context).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = 8; bottomMargin = 8
                 }
             }
+            val btnSpeak = Button(context).apply {
+                text = if (ar) "🔊 استماع للذكر" else "🔊 Listen"
+                setBackgroundColor(Color.parseColor("#0284C7"))
+                setTextColor(Color.WHITE)
+                isAllCaps = false
+                textSize = 13f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 8 }
+                setOnClickListener {
+                    voiceEnabled = true
+                    speakDhikr(if (ar) items[idx].arText else items[idx].enText)
+                }
+            }
+            val btnToggleVoice = Button(context).apply {
+                text = if (ar) "🔇 كتم القراءة" else "🔇 Mute Voice"
+                setBackgroundColor(Color.parseColor("#44334155"))
+                setTextColor(Color.WHITE)
+                isAllCaps = false
+                textSize = 13f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener {
+                    voiceEnabled = !voiceEnabled
+                    if (!voiceEnabled) tts?.stop()
+                    text = if (voiceEnabled) (if (ar) "🔇 كتم القراءة" else "🔇 Mute Voice") else (if (ar) "🔊 تفعيل القراءة" else "🔊 Unmute Voice")
+                }
+            }
+            voiceRow.addView(btnSpeak)
+            voiceRow.addView(btnToggleVoice)
+
+            // Realistic Falling-Bead Tasbeeh for counting Adhkar!
+            val beadView = BeadTasbeehView(context).apply {
+                layoutParams = LinearLayout.LayoutParams(200, 250)
+            }
+
+            fun advanceDhikr() {
+                left--
+                if (left <= 0) {
+                    idx++
+                    if (idx >= items.size) {
+                        Toast.makeText(
+                            context,
+                            if (ar) "تقبّل الله طاعتك! تم فتح الهاتف." else "May Allah accept your prayers! Phone unlocked.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        hide()
+                        onAdhkarCompleted()
+                        return
+                    }
+                    left = items[idx].targetCount
+                    stepTv.text = "${idx + 1} / ${items.size}"
+                    val nextText = if (ar) items[idx].arText else items[idx].enText
+                    dhikrTv.text = nextText
+                    speakDhikr(nextText)
+                }
+                remTv.text = if (ar) "المتبقي: $left" else "Remaining: $left"
+            }
+
+            beadView.onBeadTapped = { advanceDhikr() }
+
+            val hintTv = TextView(context).apply {
+                text = if (ar) "اضغط على حبات السبحة لتنزيل حبة مع كل ذكر" else "Tap the prayer beads to drop a bead for each Dhikr"
+                textSize = 11.5f
+                setTextColor(Color.parseColor("#94A3B8"))
+                gravity = Gravity.CENTER
+            }
+
             adhkarCard.addView(stepTv)
             adhkarCard.addView(dhikrTv)
             adhkarCard.addView(remTv)
-            adhkarCard.addView(btnRead)
+            adhkarCard.addView(voiceRow)
+            adhkarCard.addView(beadView)
+            adhkarCard.addView(hintTv)
             root.addView(adhkarCard)
+
+            initTtsAndSpeak(ar, if (ar) items[0].arText else items[0].enText)
         }
 
         val errTv = TextView(context).apply {
@@ -319,7 +398,7 @@ class SystemOverlayBlocker(
             setHintTextColor(Color.parseColor("#94A3B8"))
             setTextColor(Color.WHITE)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            background = cardBg("#121C30", "#334155", 22f)
+            background = glassCardBg("#55121C30", "#55475569", 22f)
             setPadding(28, 22, 28, 22)
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                 topMargin = 8; bottomMargin = 8
@@ -328,8 +407,8 @@ class SystemOverlayBlocker(
 
         val btnUnlock = Button(context).apply {
             text = Strings.get(ar, "parent_unlock")
-            setBackgroundColor(Color.parseColor("#10B981"))
-            setTextColor(Color.parseColor("#06281E"))
+            setBackgroundColor(Color.parseColor("#0284C7"))
+            setTextColor(Color.WHITE)
             isAllCaps = false
             textSize = 14.5f
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
@@ -356,12 +435,12 @@ class SystemOverlayBlocker(
         if (mode == "PHONE_LOCK" || mode == "PRAYER_LOCK" || mode == "ADHKAR_LOCK" || mode == "BEDTIME_LOCK") {
             val btnCalls = Button(context).apply {
                 text = Strings.get(ar, "open_calls")
-                setBackgroundColor(Color.parseColor("#0284C7"))
+                setBackgroundColor(Color.parseColor("#0EA5E9"))
                 setTextColor(Color.WHITE)
                 isAllCaps = false
                 textSize = 14.5f
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = 14
+                    topMargin = 12
                 }
                 setOnClickListener {
                     hide()
@@ -376,11 +455,11 @@ class SystemOverlayBlocker(
         } else if (mode == "APP_BLOCKED") {
             val btnHome = Button(context).apply {
                 text = Strings.get(ar, "go_home")
-                setBackgroundColor(Color.parseColor("#334155"))
+                setBackgroundColor(Color.parseColor("#44334155"))
                 setTextColor(Color.WHITE)
                 isAllCaps = false
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = 14
+                    topMargin = 12
                 }
                 setOnClickListener {
                     hide()
@@ -407,7 +486,7 @@ class SystemOverlayBlocker(
             WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON or
                 WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED,
-            PixelFormat.OPAQUE
+            PixelFormat.TRANSLUCENT
         )
 
         try {
@@ -425,10 +504,12 @@ class SystemOverlayBlocker(
     fun hide() {
         handler.removeCallbacks(countdownRunnable)
         stopAdhan()
+        stopTts()
         overlayView?.let {
             try { wm.removeView(it) } catch (_: Exception) { }
         }
         overlayView = null
+        waveView = null
         currentMode = null
     }
 
@@ -437,12 +518,15 @@ class SystemOverlayBlocker(
             stopAdhan()
             mediaPlayer = MediaPlayer.create(context, R.raw.adhan)
             mediaPlayer?.start()
+            waveView?.isPlayingWave = true
+            mediaPlayer?.setOnCompletionListener { waveView?.isPlayingWave = false }
         } catch (_: Exception) { }
     }
 
     private fun stopAdhan() {
         try {
             mediaPlayer?.stop(); mediaPlayer?.release(); mediaPlayer = null
+            waveView?.isPlayingWave = false
         } catch (_: Exception) { }
     }
 }

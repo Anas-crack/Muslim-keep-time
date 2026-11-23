@@ -5,12 +5,15 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.speech.tts.TextToSpeech
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
+import android.view.WindowManager
 import android.widget.*
 import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AppCompatActivity
@@ -19,6 +22,7 @@ import com.muslimtimekeeper.app.core.AdhkarData
 import com.muslimtimekeeper.app.core.PrefsStore
 import com.muslimtimekeeper.app.core.Strings
 import com.muslimtimekeeper.app.service.GuardianService
+import java.util.Locale
 
 class LockOverlayActivity : AppCompatActivity() {
     private lateinit var store: PrefsStore
@@ -27,6 +31,8 @@ class LockOverlayActivity : AppCompatActivity() {
     private var endMillis: Long = 0L
     private var timerTv: TextView? = null
     private var waveView: AdhanWaveView? = null
+    private var tts: TextToSpeech? = null
+    private var voiceEnabled: Boolean = true
     private var mode: String = "PHONE_LOCK"
 
     private val countdownRunnable = object : Runnable {
@@ -48,12 +54,51 @@ class LockOverlayActivity : AppCompatActivity() {
             intArrayOf(Color.parseColor(startHex), Color.parseColor(endHex))
         ).apply {
             cornerRadius = radiusDp * resources.displayMetrics.density
-            if (strokeHex != null) setStroke(3, Color.parseColor(strokeHex))
+            if (strokeHex != null) setStroke(2, Color.parseColor(strokeHex))
         }
+    }
+
+    private fun initTtsAndSpeak(ar: Boolean, initialText: String) {
+        stopTts()
+        try {
+            tts = TextToSpeech(this) { status ->
+                if (status == TextToSpeech.SUCCESS) {
+                    val loc = if (ar) Locale("ar", "EG") else Locale.US
+                    val res = tts?.setLanguage(loc)
+                    if (ar && (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED)) {
+                        tts?.setLanguage(Locale("ar"))
+                    }
+                    tts?.setSpeechRate(0.88f)
+                    if (voiceEnabled) speakDhikr(initialText)
+                }
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun speakDhikr(text: String) {
+        if (!voiceEnabled) return
+        try {
+            tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "dhikr_${System.currentTimeMillis()}")
+        } catch (_: Exception) { }
+    }
+
+    private fun stopTts() {
+        try {
+            tts?.stop()
+            tts?.shutdown()
+            tts = null
+        } catch (_: Exception) { }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            try {
+                window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
+                window.attributes = window.attributes.apply { blurBehindRadius = 55 }
+                window.setBackgroundBlurRadius(50)
+            } catch (_: Exception) { }
+        }
         store = PrefsStore(this)
         val ar = store.isArabic
         window.decorView.layoutDirection = if (ar) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
@@ -79,9 +124,9 @@ class LockOverlayActivity : AppCompatActivity() {
         val isBedtime = (mode == "BEDTIME_LOCK")
 
         val bgColors = when {
-            isPrayer || isAdhkar -> intArrayOf(Color.parseColor("#041F17"), Color.parseColor("#0B3B2E"), Color.parseColor("#070B14"))
-            isBedtime -> intArrayOf(Color.parseColor("#0F172A"), Color.parseColor("#1E1B4B"), Color.parseColor("#070B14"))
-            else -> intArrayOf(Color.parseColor("#2A0C12"), Color.parseColor("#180A0E"), Color.parseColor("#070B14"))
+            isPrayer || isAdhkar -> intArrayOf(Color.parseColor("#C4081526"), Color.parseColor("#D80F2438"), Color.parseColor("#E6070E1A"))
+            isBedtime -> intArrayOf(Color.parseColor("#C40F172A"), Color.parseColor("#D81E1B4B"), Color.parseColor("#E6070B14"))
+            else -> intArrayOf(Color.parseColor("#C42A0C12"), Color.parseColor("#D8180A0E"), Color.parseColor("#E6070B14"))
         }
 
         val scroll = ScrollView(this).apply {
@@ -92,16 +137,16 @@ class LockOverlayActivity : AppCompatActivity() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            setPadding(48, 48, 48, 48)
+            setPadding(44, 44, 44, 44)
         }
 
         val frame = FrameLayout(this).apply {
-            layoutParams = LinearLayout.LayoutParams(280, 280).apply { bottomMargin = 14 }
+            layoutParams = LinearLayout.LayoutParams(240, 240).apply { bottomMargin = 12 }
         }
         val ring = GlowingMandalaRingView(this).apply { setProgressRatio(1.0f) }
         val logo = ImageView(this).apply {
             setImageResource(R.drawable.app_logo)
-            layoutParams = FrameLayout.LayoutParams(150, 150, Gravity.CENTER)
+            layoutParams = FrameLayout.LayoutParams(130, 130, Gravity.CENTER)
         }
         frame.addView(ring)
         frame.addView(logo)
@@ -114,7 +159,7 @@ class LockOverlayActivity : AppCompatActivity() {
                 "APP_BLOCKED" -> Strings.get(ar, "app_blocked_title")
                 else -> Strings.get(ar, "phone_locked_title")
             }
-            textSize = 24f
+            textSize = 23f
             setTypeface(null, Typeface.BOLD)
             setTextColor(
                 when {
@@ -135,7 +180,7 @@ class LockOverlayActivity : AppCompatActivity() {
             textSize = 14f
             setTextColor(Color.parseColor("#CBD5E1"))
             gravity = Gravity.CENTER
-            setPadding(0, 10, 0, 14)
+            setPadding(0, 8, 0, 12)
         }
 
         root.addView(frame)
@@ -145,7 +190,7 @@ class LockOverlayActivity : AppCompatActivity() {
         if (isPrayer) {
             timerTv = TextView(this).apply {
                 text = "${store.prayerDurationMinutes}:00"
-                textSize = 42f
+                textSize = 40f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.parseColor("#F59E0B"))
                 gravity = Gravity.CENTER
@@ -153,11 +198,11 @@ class LockOverlayActivity : AppCompatActivity() {
             root.addView(timerTv)
 
             waveView = AdhanWaveView(this).apply {
-                layoutParams = LinearLayout.LayoutParams(360, 56).apply { topMargin = 4; bottomMargin = 10 }
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 76).apply { topMargin = 4; bottomMargin = 10 }
             }
             root.addView(waveView)
 
-            // Calm Electronic Tasbeeh
+            // Realistic Falling-Bead Tasbeeh
             val phrases = if (ar) AdhkarData.tasbeehPhrasesAr else AdhkarData.tasbeehPhrasesEn
             var phraseIdx = 0
             var tasbeehCount = 0
@@ -165,17 +210,11 @@ class LockOverlayActivity : AppCompatActivity() {
             val tasbeehCard = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                background = roundedBg("#0D2E25", "#09211B", 16f, "#10B981")
-                setPadding(26, 20, 26, 20)
+                background = roundedBg("#55102A3E", "#440B1B2E", 16f, "#5538BDF8")
+                setPadding(24, 18, 24, 18)
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                     bottomMargin = 12
                 }
-            }
-            val tasbeehLbl = TextView(this).apply {
-                text = if (ar) "📿 سبحة إلكترونية هادئة" else "📿 Calm Tasbeeh"
-                textSize = 12f
-                setTextColor(Color.parseColor("#6EE7B7"))
-                gravity = Gravity.CENTER
             }
             val phraseTv = TextView(this).apply {
                 text = phrases[0]
@@ -183,56 +222,43 @@ class LockOverlayActivity : AppCompatActivity() {
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
-                setPadding(0, 6, 0, 4)
             }
             val countTv = TextView(this).apply {
-                text = "0"
-                textSize = 24f
-                setTypeface(null, Typeface.BOLD)
+                text = if (ar) "العدد: 0  (اضغط على حبات السبحة)" else "Count: 0  (Tap the beads)"
+                textSize = 14f
                 setTextColor(Color.parseColor("#F59E0B"))
                 gravity = Gravity.CENTER
+                setPadding(0, 4, 0, 6)
             }
-            val rowBtns = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = 8
-                }
-            }
-            val btnTap = Button(this).apply {
-                text = if (ar) "سبّح (+1)" else "Tap (+1)"
-                background = roundedBg("#10B981", "#059669", 12f)
-                setTextColor(Color.parseColor("#06281E"))
-                isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1.5f).apply { marginEnd = 8 }
-                setOnClickListener {
+            val beadView = BeadTasbeehView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(200, 260)
+                onBeadTapped = {
                     tasbeehCount++
-                    countTv.text = "$tasbeehCount"
+                    countTv.text = if (ar) "العدد: $tasbeehCount" else "Count: $tasbeehCount"
                 }
             }
             val btnNextPhrase = Button(this).apply {
-                text = if (ar) "ذكر آخر ↻" else "Next ↻"
-                background = roundedBg("#1E293B", "#0F172A", 12f, "#334155")
+                text = if (ar) "تغيير الذكر ↻" else "Next Dhikr ↻"
+                background = roundedBg("#441E293B", "#440F172A", 12f, "#4464748B")
                 setTextColor(Color.WHITE)
                 isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 8 }
                 setOnClickListener {
                     phraseIdx = (phraseIdx + 1) % phrases.size
                     tasbeehCount = 0
                     phraseTv.text = phrases[phraseIdx]
-                    countTv.text = "0"
+                    countTv.text = if (ar) "العدد: 0" else "Count: 0"
                 }
             }
-            rowBtns.addView(btnTap)
-            rowBtns.addView(btnNextPhrase)
-            tasbeehCard.addView(tasbeehLbl)
             tasbeehCard.addView(phraseTv)
             tasbeehCard.addView(countTv)
-            tasbeehCard.addView(rowBtns)
+            tasbeehCard.addView(beadView)
+            tasbeehCard.addView(btnNextPhrase)
             root.addView(tasbeehCard)
 
             val btnMute = Button(this).apply {
                 text = Strings.get(ar, "mute_adhan")
-                background = roundedBg("#1E293B", "#0F172A", 12f, "#334155")
+                background = roundedBg("#441E293B", "#440F172A", 12f, "#4464748B")
                 setTextColor(Color.WHITE)
                 isAllCaps = false
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
@@ -245,12 +271,13 @@ class LockOverlayActivity : AppCompatActivity() {
             val items = AdhkarData.postPrayerAdhkar
             var idx = 0
             var left = items[0].targetCount
+            voiceEnabled = true
 
             val adhkarCard = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 gravity = Gravity.CENTER
-                background = roundedBg("#0D2E25", "#09211B", 18f, "#10B981")
-                setPadding(28, 24, 28, 24)
+                background = roundedBg("#55102A3E", "#440B1B2E", 18f, "#5538BDF8")
+                setPadding(24, 20, 24, 20)
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
                     bottomMargin = 14
                 }
@@ -258,61 +285,107 @@ class LockOverlayActivity : AppCompatActivity() {
             val stepTv = TextView(this).apply {
                 text = "${idx + 1} / ${items.size}"
                 textSize = 13f
-                setTextColor(Color.parseColor("#6EE7B7"))
+                setTextColor(Color.parseColor("#7DD3FC"))
                 gravity = Gravity.CENTER
             }
             val dhikrTv = TextView(this).apply {
                 text = if (ar) items[0].arText else items[0].enText
-                textSize = 18.5f
+                textSize = 17.5f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.WHITE)
                 gravity = Gravity.CENTER
-                setPadding(0, 12, 0, 12)
+                setPadding(0, 10, 0, 10)
             }
             val remTv = TextView(this).apply {
                 text = if (ar) "المتبقي: $left" else "Remaining: $left"
-                textSize = 22f
+                textSize = 20f
                 setTypeface(null, Typeface.BOLD)
                 setTextColor(Color.parseColor("#F59E0B"))
                 gravity = Gravity.CENTER
-                setPadding(0, 0, 0, 12)
             }
-            val btnRead = Button(this).apply {
-                text = if (ar) "📿 اضغط بعد القراءة / التسبيح" else "📿 Tap After Reading"
-                background = roundedBg("#10B981", "#059669", 14f)
-                setTextColor(Color.parseColor("#06281E"))
-                textSize = 15.5f
-                setTypeface(null, Typeface.BOLD)
-                isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
-                setOnClickListener {
-                    left--
-                    if (left <= 0) {
-                        idx++
-                        if (idx >= items.size) {
-                            Toast.makeText(
-                                this@LockOverlayActivity,
-                                if (ar) "تقبّل الله طاعتك! تم فتح الهاتف." else "May Allah accept your prayers! Phone unlocked.",
-                                Toast.LENGTH_LONG
-                            ).show()
-                            startService(Intent(this@LockOverlayActivity, GuardianService::class.java).apply {
-                                action = "ACTION_ADHKAR_COMPLETED"
-                            })
-                            finish()
-                            return@setOnClickListener
-                        }
-                        left = items[idx].targetCount
-                        stepTv.text = "${idx + 1} / ${items.size}"
-                        dhikrTv.text = if (ar) items[idx].arText else items[idx].enText
-                    }
-                    remTv.text = if (ar) "المتبقي: $left" else "Remaining: $left"
+
+            val voiceRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    topMargin = 8; bottomMargin = 8
                 }
             }
+            val btnSpeak = Button(this).apply {
+                text = if (ar) "🔊 استماع للذكر" else "🔊 Listen"
+                background = roundedBg("#0284C7", "#0369A1", 12f)
+                setTextColor(Color.WHITE)
+                isAllCaps = false
+                textSize = 13f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = 8 }
+                setOnClickListener {
+                    voiceEnabled = true
+                    speakDhikr(if (ar) items[idx].arText else items[idx].enText)
+                }
+            }
+            val btnToggleVoice = Button(this).apply {
+                text = if (ar) "🔇 كتم القراءة" else "🔇 Mute Voice"
+                background = roundedBg("#441E293B", "#440F172A", 12f, "#4464748B")
+                setTextColor(Color.WHITE)
+                isAllCaps = false
+                textSize = 13f
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                setOnClickListener {
+                    voiceEnabled = !voiceEnabled
+                    if (!voiceEnabled) tts?.stop()
+                    text = if (voiceEnabled) (if (ar) "🔇 كتم القراءة" else "🔇 Mute Voice") else (if (ar) "🔊 تفعيل القراءة" else "🔊 Unmute Voice")
+                }
+            }
+            voiceRow.addView(btnSpeak)
+            voiceRow.addView(btnToggleVoice)
+
+            val beadView = BeadTasbeehView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(200, 250)
+            }
+
+            fun advanceDhikr() {
+                left--
+                if (left <= 0) {
+                    idx++
+                    if (idx >= items.size) {
+                        Toast.makeText(
+                            this@LockOverlayActivity,
+                            if (ar) "تقبّل الله طاعتك! تم فتح الهاتف." else "May Allah accept your prayers! Phone unlocked.",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        startService(Intent(this@LockOverlayActivity, GuardianService::class.java).apply {
+                            action = "ACTION_ADHKAR_COMPLETED"
+                        })
+                        finish()
+                        return
+                    }
+                    left = items[idx].targetCount
+                    stepTv.text = "${idx + 1} / ${items.size}"
+                    val nextText = if (ar) items[idx].arText else items[idx].enText
+                    dhikrTv.text = nextText
+                    speakDhikr(nextText)
+                }
+                remTv.text = if (ar) "المتبقي: $left" else "Remaining: $left"
+            }
+
+            beadView.onBeadTapped = { advanceDhikr() }
+
+            val hintTv = TextView(this).apply {
+                text = if (ar) "اضغط على حبات السبحة لتنزيل حبة مع كل ذكر" else "Tap the prayer beads to drop a bead for each Dhikr"
+                textSize = 11.5f
+                setTextColor(Color.parseColor("#94A3B8"))
+                gravity = Gravity.CENTER
+            }
+
             adhkarCard.addView(stepTv)
             adhkarCard.addView(dhikrTv)
             adhkarCard.addView(remTv)
-            adhkarCard.addView(btnRead)
+            adhkarCard.addView(voiceRow)
+            adhkarCard.addView(beadView)
+            adhkarCard.addView(hintTv)
             root.addView(adhkarCard)
+
+            initTtsAndSpeak(ar, if (ar) items[0].arText else items[0].enText)
         }
 
         val pinInput = EditText(this).apply {
@@ -320,23 +393,24 @@ class LockOverlayActivity : AppCompatActivity() {
             setHintTextColor(Color.parseColor("#94A3B8"))
             setTextColor(Color.WHITE)
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            background = roundedBg("#121C30", "#0F172A", 14f, "#334155")
+            background = roundedBg("#55121C30", "#550F172A", 14f, "#55475569")
             setPadding(28, 22, 28, 22)
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                topMargin = 12; bottomMargin = 12
+                topMargin = 10; bottomMargin = 10
             }
         }
 
         val btnUnlock = Button(this).apply {
             text = Strings.get(ar, "parent_unlock")
-            background = roundedBg("#10B981", "#059669", 14f)
-            setTextColor(Color.parseColor("#06281E"))
+            background = roundedBg("#0284C7", "#0369A1", 14f)
+            setTextColor(Color.WHITE)
             isAllCaps = false
             textSize = 14.5f
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
             setOnClickListener {
                 if (store.verifyPin(pinInput.text.toString())) {
                     stopAdhan()
+                    stopTts()
                     when (mode) {
                         "PRAYER_LOCK" -> startService(Intent(this@LockOverlayActivity, GuardianService::class.java).apply { action = "ACTION_PRAYER_UNLOCKED" })
                         "ADHKAR_LOCK" -> startService(Intent(this@LockOverlayActivity, GuardianService::class.java).apply { action = "ACTION_ADHKAR_COMPLETED" })
@@ -360,12 +434,12 @@ class LockOverlayActivity : AppCompatActivity() {
         if (mode == "PHONE_LOCK" || mode == "PRAYER_LOCK" || mode == "ADHKAR_LOCK" || mode == "BEDTIME_LOCK") {
             val btnCalls = Button(this).apply {
                 text = Strings.get(ar, "open_calls")
-                background = roundedBg("#0284C7", "#0369A1", 14f)
+                background = roundedBg("#0EA5E9", "#0284C7", 14f)
                 setTextColor(Color.WHITE)
                 isAllCaps = false
                 textSize = 14.5f
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = 14
+                    topMargin = 12
                 }
                 setOnClickListener {
                     try {
@@ -379,11 +453,11 @@ class LockOverlayActivity : AppCompatActivity() {
         if (mode == "APP_BLOCKED") {
             val btnHome = Button(this).apply {
                 text = Strings.get(ar, "go_home")
-                background = roundedBg("#1E293B", "#0F172A", 12f, "#334155")
+                background = roundedBg("#441E293B", "#440F172A", 12f, "#4464748B")
                 setTextColor(Color.WHITE)
                 isAllCaps = false
                 layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = 14
+                    topMargin = 12
                 }
                 setOnClickListener {
                     startActivity(Intent(Intent.ACTION_MAIN).apply {
@@ -422,6 +496,6 @@ class LockOverlayActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(countdownRunnable); stopAdhan(); super.onDestroy()
+        handler.removeCallbacks(countdownRunnable); stopAdhan(); stopTts(); super.onDestroy()
     }
 }

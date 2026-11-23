@@ -79,6 +79,9 @@ object PrayerCalculator {
         }
     }
 
+    /**
+     * Five obligatory prayers (used for Adhan & Prayer Lock)
+     */
     fun calculateToday(lat: Double, lon: Double, tz: Double): LinkedHashMap<String, Calendar> {
         val cal = Calendar.getInstance()
         val y = cal.get(Calendar.YEAR)
@@ -97,10 +100,37 @@ object PrayerCalculator {
         return map
     }
 
+    /**
+     * Complete daily schedule including Sunrise (الشروق) & Duha (صلاة الضحى = Sunrise + 15m)
+     */
+    fun calculateDisplayTimes(lat: Double, lon: Double, tz: Double): LinkedHashMap<String, Calendar> {
+        val cal = Calendar.getInstance()
+        val y = cal.get(Calendar.YEAR)
+        val m = cal.get(Calendar.MONTH) + 1
+        val d = cal.get(Calendar.DAY_OF_MONTH)
+        val jd = julianDate(y, m, d) - lon / (15.0 * 24.0)
+        val shift = tz - lon / 15.0
+
+        val sunriseH = sunAngleTime(jd, lat, 0.833, 6.0 / 24.0, true) + shift
+        val duhaH = sunriseH + (15.0 / 60.0)
+
+        val map = linkedMapOf<String, Calendar>()
+        map["Fajr"] = hoursToCal(cal, sunAngleTime(jd, lat, 19.5, 5.0 / 24.0, true) + shift)
+        map["Sunrise"] = hoursToCal(cal, sunriseH)
+        map["Duha"] = hoursToCal(cal, duhaH)
+        map["Dhuhr"] = hoursToCal(cal, midDay(jd, 12.0 / 24.0) + shift)
+        map["Asr"] = hoursToCal(cal, asrTime(jd, lat, 1, 13.0 / 24.0) + shift)
+        map["Maghrib"] = hoursToCal(cal, sunAngleTime(jd, lat, 0.833, 18.0 / 24.0, false) + shift)
+        map["Isha"] = hoursToCal(cal, sunAngleTime(jd, lat, 17.5, 18.0 / 24.0, false) + shift)
+        return map
+    }
+
     fun localizedName(enName: String, isAr: Boolean): String {
         if (!isAr) return enName
         return when (enName) {
             "Fajr" -> "الفجر"
+            "Sunrise" -> "الشروق"
+            "Duha" -> "صلاة الضحى"
             "Dhuhr" -> "الظهر"
             "Asr" -> "العصر"
             "Maghrib" -> "المغرب"
