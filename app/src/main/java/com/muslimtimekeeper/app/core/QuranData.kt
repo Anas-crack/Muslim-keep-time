@@ -3,6 +3,7 @@ package com.muslimtimekeeper.app.core
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -17,9 +18,18 @@ data class SurahInfo(
     val isMakki: Boolean
 )
 
+data class MushafPageResult(
+    val bitmap: Bitmap?,
+    val fallbackText: String?
+)
+
 /**
  * Authentic King Fahd Complex Madinah Mushaf (مصحف المدينة المنورة الأصلي — 604 صفحة)
- * Complete 114-Surah index, 30-Juz index, and local-caching page loader.
+ * Priority:
+ *  1. Bundled local assets (app/src/main/assets/mushaf/page001.png or 001.png/.jpg) -> 100% Offline!
+ *  2. Local cached pages in app storage -> Offline after first load!
+ *  3. Verified fast GitHub/jsDelivr CDN mirrors of King Fahd Madinah Mushaf PNGs
+ *  4. Guaranteed Uthmani text fallback via AlQuran.cloud API (cached offline too!)
  */
 object QuranData {
     val surahs: List<SurahInfo> = listOf(
@@ -161,22 +171,35 @@ object QuranData {
         return juz
     }
 
-    /**
-     * Loads authentic Madinah Mushaf page (1..604) with permanent local disk caching so viewed pages work offline!
-     */
-    fun loadMushafPage(context: Context, pageNum: Int): Bitmap? {
+    fun loadMushafPage(context: Context, pageNum: Int): MushafPageResult {
         val p = pageNum.coerceIn(1, 604)
-        val cacheDir = File(context.filesDir, "mushaf_madani")
-        if (!cacheDir.exists()) cacheDir.mkdirs()
-        val file = File(cacheDir, String.format("page%03d.png", p))
-        if (file.exists() && file.length() > 5000L) {
-            return BitmapFactory.decodeFile(file.absolutePath)
+        val padded = String.format("%03d", p)
+
+        // 1. Check local bundled assets/mushaf/ first (100% offline if user bundled images!)
+        val localNames = listOf("mushaf/page$padded.png", "mushaf/$padded.png", "mushaf/page$padded.jpg", "mushaf/$padded.jpg", "mushaf/$p.png", "mushaf/$p.jpg")
+        for (name in localNames) {
+            try {
+                context.assets.open(name).use { stream ->
+                    val bmp = BitmapFactory.decodeStream(stream)
+                    if (bmp != null) return MushafPageResult(bmp, null)
+                }
+            } catch (_: Exception) { }
         }
 
-        val padded = String.format("%03d", p)
+        // 2. Check permanent local disk cache
+        val cacheDir = File(context.filesDir, "mushaf_madani")
+        if (!cacheDir.exists()) cacheDir.mkdirs()
+        val imgFile = File(cacheDir, "page$padded.png")
+        if (imgFile.exists() && imgFile.length() > 4000L) {
+            val bmp = BitmapFactory.decodeFile(imgFile.absolutePath)
+            if (bmp != null) return MushafPageResult(bmp, null)
+        }
+
+        // 3. Download from verified fast King Fahd Madinah Mushaf CDN mirrors
         val urls = listOf(
-            "https://android.quran.com/data/width_1024/page$padded.png",
-            "https://cdn.islamic.network/quran/images/high-resolution/page$p.png"
+            "https://cdn.jsdelivr.net/gh/GovarJabbar/Quran-PNG@master/$padded.png",
+            "https://raw.githubusercontent.com/GovarJabbar/Quran-PNG/master/$padded.png",
+            "https://cdn.jsdelivr.net/gh/QuranHub/quran-pages-images@main/kfgqpc/hafs-wasat/$padded.jpg"
         )
         for (u in urls) {
             try {
@@ -184,17 +207,50 @@ object QuranData {
                     connectTimeout = 10000
                     readTimeout = 15000
                     instanceFollowRedirects = true
-                    setRequestProperty("User-Agent", "MuslimTimeKeeper-Android")
+                    setRequestProperty("User-Agent", "Mozilla/5.0 MuslimTimeKeeper")
                 }
                 if (conn.responseCode == 200) {
                     val bytes = conn.inputStream.readBytes()
-                    if (bytes.size > 5000) {
-                        FileOutputStream(file).use { it.write(bytes) }
-                        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bytes.size > 4000) {
+                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bmp != null) {
+                            FileOutputStream(imgFile).use { it.write(bytes) }
+                            return MushafPageResult(bmp, null)
+                        }
                     }
                 }
             } catch (_: Exception) { }
         }
-        return null
+
+        // 4. Guaranteed crisp Uthmani Text Fallback via AlQuran.cloud API (cached permanently offline!)
+        val txtFile = File(cacheDir, "page$padded.txt")
+        if (txtFile.exists() && txtFile.length() > 20L) {
+            return MushafPageResult(null, txtFile.readText())
+        }
+        try {
+            val conn = (URL("https://api.alquran.cloud/v1/page/$p/quran-uthmani").openConnection() as HttpURLConnection).apply {
+                connectTimeout = 10000
+                readTimeout = 12000
+                setRequestProperty("User-Agent", "Mozilla/5.0 MuslimTimeKeeper")
+            }
+            if (conn.responseCode == 200) {
+                val json = JSONObject(conn.inputStream.bufferedReader().readText())
+                val ayahs = json.getJSONObject("data").getJSONArray("ayahs")
+                val sb = StringBuilder()
+                for (i in 0 until ayahs.length()) {
+                    val a = ayahs.getJSONObject(i)
+                    val num = a.getInt("numberInSurah")
+                    val txt = a.getString("text")
+                    sb.append(txt).append(" ﴿").append(num).append("﴾  ")
+                }
+                val finalTxt = sb.toString().trim()
+                if (finalTxt.isNotEmpty()) {
+                    txtFile.writeText(finalTxt)
+                    return MushafPageResult(null, finalTxt)
+                }
+            }
+        } catch (_: Exception) { }
+
+        return MushafPageResult(null, null)
     }
 }

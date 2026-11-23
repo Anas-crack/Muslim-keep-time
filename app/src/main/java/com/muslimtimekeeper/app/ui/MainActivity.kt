@@ -979,12 +979,19 @@ class MainActivity : AppCompatActivity() {
         col.addView(pageCard)
 
         Thread {
-            val bmp = QuranData.loadMushafPage(this, curPage)
+            val res = QuranData.loadMushafPage(this, curPage)
             uiHandler.post {
-                if (bmp != null) {
-                    pageImg.setImageBitmap(bmp)
+                if (res.bitmap != null) {
+                    pageImg.setImageBitmap(res.bitmap)
                     pageImg.visibility = View.VISIBLE
                     statusTv.visibility = View.GONE
+                } else if (!res.fallbackText.isNullOrEmpty()) {
+                    statusTv.text = res.fallbackText
+                    statusTv.textSize = 20f
+                    statusTv.setLineSpacing(dp(10).toFloat(), 1.15f)
+                    statusTv.setTextColor(if (store.mushafNightMode) Color.parseColor("#F8FAFC") else Color.parseColor("#1E293B"))
+                    statusTv.gravity = Gravity.CENTER
+                    statusTv.setPadding(dp(12), dp(14), dp(12), dp(14))
                 } else {
                     statusTv.text = if (ar) "تعذّر تحميل الصفحة — تأكد من اتصال الإنترنت لأول مرة (يتم حفظ كل صفحة تلقائياً للقراءة بدون إنترنت لاحقاً)."
                     else "Could not load page — check internet connection for first-time download (pages are cached offline automatically)."
@@ -1023,19 +1030,16 @@ class MainActivity : AppCompatActivity() {
 
         // 1. Category Selector Bar (5 Categories!)
         val catCard = makeCard(if (ar) "📿 الأذكار والتسبيح" else "📿 Adhkar & Tasbeeh")
-        val catScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
-        val catRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        val catNames = if (ar) listOf("📿 يومية (السبحة)", "☀️ أذكار الصباح", "🌇 أذكار المساء", "🌙 أذكار النوم", "🌅 الاستيقاظ")
-        else listOf("📿 Daily Tasbeeh", "☀️ Morning", "🌇 Evening", "🌙 Sleep", "🌅 Waking Up")
+        val catNames = if (ar) listOf("📿 يومية", "☀️ الصباح (28)", "🌇 المساء (28)", "🌙 النوم (12)", "🌅 الاستيقاظ (5)")
+        else listOf("📿 Daily", "☀️ Morning (28)", "🌇 Evening (28)", "🌙 Sleep (12)", "🌅 Waking (5)")
 
-        catNames.forEachIndexed { idx, lbl ->
+        fun makeCatBtn(idx: Int): Button {
             val sel = (adhkarCategory == idx)
-            val b = Button(this).apply {
-                text = lbl; isAllCaps = false; textSize = 12f; setTypeface(null, Typeface.BOLD)
-                background = if (sel) gradientBg("#059669", "#10B981", 12) else gradientBg(btnNeutralBg(), btnNeutralBg(), 12)
+            return Button(this).apply {
+                text = catNames[idx]; isAllCaps = false; textSize = 11.5f; setTypeface(null, Typeface.BOLD)
+                background = if (sel) gradientBg("#059669", "#10B981", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
                 setTextColor(if (sel) Color.WHITE else Color.parseColor(btnNeutralFg()))
-                setPadding(dp(14), dp(6), dp(14), dp(6))
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(38)).apply { marginEnd = dp(6) }
+                layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
                 setOnClickListener {
                     adhkarCategory = idx
                     adhkarCatIdx = 0
@@ -1043,10 +1047,13 @@ class MainActivity : AppCompatActivity() {
                     renderTab(2)
                 }
             }
-            catRow.addView(b)
         }
-        catScroll.addView(catRow)
-        catCard.addView(catScroll)
+        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dp(6)) }
+        row1.addView(makeCatBtn(0)); row1.addView(makeCatBtn(1)); row1.addView(makeCatBtn(2))
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dp(4)) }
+        row2.addView(makeCatBtn(3)); row2.addView(makeCatBtn(4))
+        catCard.addView(row1)
+        catCard.addView(row2)
 
         val list = when (adhkarCategory) {
             1 -> AdhkarData.morningAdhkar
