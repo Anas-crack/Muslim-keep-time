@@ -8,6 +8,9 @@ import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 data class SurahInfo(
     val number: Int,
@@ -252,5 +255,75 @@ object QuranData {
         } catch (_: Exception) { }
 
         return MushafPageResult(null, null)
+    }
+
+    fun countCachedPages(context: Context): Int {
+        val cacheDir = File(context.filesDir, "mushaf_madani")
+        if (!cacheDir.exists()) return 0
+        var count = 0
+        for (p in 1..604) {
+            val f = File(cacheDir, String.format("page%03d.png", p))
+            if (f.exists() && f.length() > 4000L) count++
+        }
+        return count
+    }
+
+    /**
+     * Fast 4-thread resumable downloader for all 604 Madinah Mushaf pages (0% -> 100%).
+     * Skips already cached pages automatically so it resumes cleanly if paused or interrupted.
+     */
+    fun downloadAllPages(
+        context: Context,
+        isCancelled: () -> Boolean,
+        onProgress: (done: Int, total: Int) -> Unit
+    ): Boolean {
+        val cacheDir = File(context.filesDir, "mushaf_madani")
+        if (!cacheDir.exists()) cacheDir.mkdirs()
+
+        val done = AtomicInteger(0)
+        val missing = mutableListOf<Int>()
+        for (p in 1..604) {
+            val f = File(cacheDir, String.format("page%03d.png", p))
+            if (f.exists() && f.length() > 4000L) done.incrementAndGet()
+            else missing.add(p)
+        }
+        onProgress(done.get(), 604)
+        if (missing.isEmpty()) return true
+
+        val pool = Executors.newFixedThreadPool(4)
+        for (p in missing) {
+            pool.execute {
+                if (isCancelled()) return@execute
+                val padded = String.format("%03d", p)
+                val imgFile = File(cacheDir, "page$padded.png")
+                val urls = listOf(
+                    "https://cdn.jsdelivr.net/gh/GovarJabbar/Quran-PNG@master/$padded.png",
+                    "https://raw.githubusercontent.com/GovarJabbar/Quran-PNG/master/$padded.png",
+                    "https://cdn.jsdelivr.net/gh/QuranHub/quran-pages-images@main/kfgqpc/hafs-wasat/$padded.jpg"
+                )
+                for (u in urls) {
+                    if (isCancelled()) return@execute
+                    try {
+                        val conn = (URL(u).openConnection() as HttpURLConnection).apply {
+                            connectTimeout = 10000
+                            readTimeout = 15000
+                            instanceFollowRedirects = true
+                            setRequestProperty("User-Agent", "Mozilla/5.0 MuslimTimeKeeper")
+                        }
+                        if (conn.responseCode == 200) {
+                            val bytes = conn.inputStream.readBytes()
+                            if (bytes.size > 4000) {
+                                FileOutputStream(imgFile).use { it.write(bytes) }
+                                onProgress(done.incrementAndGet(), 604)
+                                break
+                            }
+                        }
+                    } catch (_: Exception) { }
+                }
+            }
+        }
+        pool.shutdown()
+        try { pool.awaitTermination(30, TimeUnit.MINUTES) } catch (_: Exception) { }
+        return done.get() >= 604
     }
 }

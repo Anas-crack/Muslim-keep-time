@@ -60,6 +60,8 @@ class MainActivity : AppCompatActivity() {
     private var adhkarCategory = 0 // 0=Daily, 1=Morning, 2=Evening, 3=Sleep, 4=Waking
     private var adhkarCatIdx = 0
     private var manageSubTab = 0 // 0=Apps, 1=Data, 2=Safety
+    private var mushafDownloading = false
+    private var mushafDownloadCancelled = false
     private var showFadlInTasbeeh = true
     private lateinit var contentContainer: FrameLayout
     private lateinit var navButtons: List<TextView>
@@ -942,6 +944,78 @@ class MainActivity : AppCompatActivity() {
         }
         barCard.addView(toolsRow)
         col.addView(barCard)
+
+        // 1B. Full Offline Mushaf Downloader Card (0% -> 100% Resumable!)
+        val cachedNow = QuranData.countCachedPages(this)
+        val dlCard = makeCard()
+        if (cachedNow >= 604) {
+            dlCard.addView(TextView(this).apply {
+                text = if (ar) "✅ المصحف الشريف محمّل بالكامل (604/604) ويعمل أوفلاين بدون إنترنت!"
+                else "✅ Full Madinah Mushaf downloaded (604/604) — Ready 100% Offline!"
+                textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#10B981")); gravity = Gravity.CENTER
+            })
+        } else {
+            val initPct = (cachedNow * 100) / 604
+            val dlStatusTv = TextView(this).apply {
+                text = if (ar) "📥 تحميل المصحف للعمل بدون نت: $cachedNow / 604 صفحة ($initPct%)"
+                else "📥 Offline Mushaf Download: $cachedNow / 604 pages ($initPct%)"
+                textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(textPrimary())
+            }
+            val dlBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+                max = 100
+                progress = initPct
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(12)).apply {
+                    topMargin = dp(8); bottomMargin = dp(8)
+                }
+            }
+            lateinit var dlBtn: Button
+            dlBtn = makeBtn(
+                if (mushafDownloading) (if (ar) "⏹️ إيقاف التحميل مؤقتاً" else "⏹️ Pause Download")
+                else if (cachedNow > 0) (if (ar) "⬇️ استكمال تحميل المصحف كاملاً ($initPct%)" else "⬇️ Resume Full Mushaf Download ($initPct%)")
+                else (if (ar) "⬇️ تحميل المصحف كاملاً مرة واحدة (604 صفحة)" else "⬇️ Download Full Mushaf Once (604 Pages)"),
+                if (mushafDownloading) "#D97706" else "#059669",
+                if (mushafDownloading) "#F59E0B" else "#10B981"
+            ) {
+                if (mushafDownloading) {
+                    mushafDownloadCancelled = true
+                    mushafDownloading = false
+                    dlBtn.text = if (ar) "⬇️ استكمال تحميل المصحف كاملاً" else "⬇️ Resume Full Mushaf Download"
+                    Toast.makeText(this, if (ar) "تم إيقاف التحميل مؤقتاً — يمكنك الاستكمال لاحقاً!" else "Download paused — you can resume anytime!", Toast.LENGTH_SHORT).show()
+                } else {
+                    mushafDownloading = true
+                    mushafDownloadCancelled = false
+                    dlBtn.text = if (ar) "⏹️ إيقاف التحميل مؤقتاً" else "⏹️ Pause Download"
+                    dlBtn.background = gradientBg("#D97706", "#F59E0B", 12)
+                    Thread {
+                        val completed = QuranData.downloadAllPages(
+                            context = this,
+                            isCancelled = { mushafDownloadCancelled },
+                            onProgress = { done, total ->
+                                val pct = (done * 100) / total
+                                uiHandler.post {
+                                    dlBar.progress = pct
+                                    dlStatusTv.text = if (ar) "📥 جاري التحميل: $done / $total صفحة ($pct%)" else "📥 Downloading: $done / $total pages ($pct%)"
+                                }
+                            }
+                        )
+                        mushafDownloading = false
+                        uiHandler.post {
+                            if (completed) {
+                                Toast.makeText(this, if (ar) "ما شاء الله! اكتمل تحميل المصحف كاملاً (100%) ويعمل الآن بدون إنترنت!" else "Full Mushaf downloaded (100%) — Now works offline!", Toast.LENGTH_LONG).show()
+                                if (currentTab == 1) renderTab(1)
+                            } else if (!mushafDownloadCancelled) {
+                                dlBtn.text = if (ar) "⬇️ استكمال تحميل المصحف كاملاً" else "⬇️ Resume Download"
+                                dlBtn.background = gradientBg("#059669", "#10B981", 12)
+                            }
+                        }
+                    }.start()
+                }
+            }
+            dlCard.addView(dlStatusTv)
+            dlCard.addView(dlBar)
+            dlCard.addView(dlBtn)
+        }
+        col.addView(dlCard)
 
         // 2. Authentic Madinah Mushaf Page Viewer Card (Offline Cached!)
         val pageCard = LinearLayout(this).apply {
