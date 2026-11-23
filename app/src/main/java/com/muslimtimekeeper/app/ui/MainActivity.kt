@@ -640,9 +640,56 @@ class MainActivity : AppCompatActivity() {
             val itemCard = makeCard()
             itemCard.addView(TextView(this).apply { text = "${rule.displayName}  (${rule.dailyLimitMinutes} ${s("minutes")})"; textSize = 15.5f; setTypeface(null, Typeface.BOLD); setTextColor(textPrimary()) })
             itemCard.addView(TextView(this).apply { text = "${s("used_today")}: ${rule.secondsUsedToday / 60}m  •  ${rule.packageName}"; textSize = 12f; setTextColor(textMuted()) })
-            itemCard.addView(makeBtn(s("remove"), "#DC2626", "#EF4444") {
-                requireParentPin { val list = store.getAppRules(); list.removeAll { it.packageName.equals(rule.packageName, true) }; store.saveAppRules(list); renderTab(1) }
-            })
+
+            val actionRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) }
+            }
+            val btnEdit = Button(this).apply {
+                text = if (store.isArabic) "✏️ تعديل الوقت" else "✏️ Edit Time"
+                background = gradientBg("#0284C7", "#0EA5E9", 12)
+                setTextColor(Color.WHITE); isAllCaps = false; textSize = 13f; setTypeface(null, Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, dp(42), 1.2f).apply { marginEnd = dp(8) }
+                setOnClickListener {
+                    requireParentPin {
+                        val limIn = EditText(this@MainActivity).apply {
+                            setText(rule.dailyLimitMinutes.toString())
+                            inputType = InputType.TYPE_CLASS_NUMBER
+                            setSelection(text.length)
+                        }
+                        AlertDialog.Builder(this@MainActivity)
+                            .setTitle(if (store.isArabic) "تعديل وقت ${rule.displayName} (بالدقائق)" else "Edit ${rule.displayName} Limit (min)")
+                            .setMessage(if (store.isArabic) "اكتب الوقت الجديد مباشرة (مثلاً 120) بدون حذف المؤقت:" else "Enter the new daily limit in minutes directly:")
+                            .setView(limIn)
+                            .setPositiveButton(s("save")) { _, _ ->
+                                val newLim = (limIn.text.toString().toIntOrNull() ?: rule.dailyLimitMinutes).coerceIn(1, 1440)
+                                val list = store.getAppRules()
+                                for (i in list.indices) {
+                                    if (list[i].packageName.equals(rule.packageName, true)) {
+                                        list[i] = list[i].copy(dailyLimitMinutes = newLim, reopenAttempts = 0)
+                                        break
+                                    }
+                                }
+                                store.saveAppRules(list)
+                                Toast.makeText(this@MainActivity, if (store.isArabic) "تم تعديل الوقت إلى $newLim دقيقة!" else "Updated limit to $newLim min!", Toast.LENGTH_SHORT).show()
+                                renderTab(1)
+                            }
+                            .setNegativeButton(s("cancel"), null)
+                            .show()
+                    }
+                }
+            }
+            val btnRemove = Button(this).apply {
+                text = s("remove")
+                background = gradientBg("#DC2626", "#EF4444", 12)
+                setTextColor(Color.WHITE); isAllCaps = false; textSize = 13f; setTypeface(null, Typeface.BOLD)
+                layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
+                setOnClickListener {
+                    requireParentPin { val list = store.getAppRules(); list.removeAll { it.packageName.equals(rule.packageName, true) }; store.saveAppRules(list); renderTab(1) }
+                }
+            }
+            actionRow.addView(btnEdit); actionRow.addView(btnRemove)
+            itemCard.addView(actionRow)
             col.addView(itemCard)
         }
         scroll.addView(col)
@@ -655,7 +702,34 @@ class MainActivity : AppCompatActivity() {
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(16), dp(16), dp(24)) }
 
         val ctrlCard = makeCard(s("prayer_title"), "#10B981")
-        val swLock = Switch(this).apply { text = s("prayer_lock_sw"); isChecked = store.prayerLockEnabled; setTextColor(textPrimary()); setOnCheckedChangeListener { _, c -> requireParentPin { store.prayerLockEnabled = c } } }
+        val swLock = Switch(this).apply {
+            text = s("prayer_lock_sw")
+            isChecked = store.prayerLockEnabled
+            setTextColor(textPrimary())
+            setOnClickListener {
+                val wantOn = isChecked
+                if (wantOn) {
+                    isChecked = false
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle(if (store.isArabic) "⚠️ تنبيه مهم قبل تفعيل قفل الصلاة" else "⚠️ Important Warning Before Enabling")
+                        .setMessage(if (store.isArabic) "عند تفعيل هذا الخيار، سيتم قفل الهاتف وقت الصلاة ولن تستطيع فتح الموبايل إلا برمز الوالدين (أو بعد انتهاء مدة الصلاة). المكالمات الطارئة فقط ستبقى متاحة.\n\nيرجى التأكد من قرارك قبل التفعيل." else "When enabled, your phone will lock automatically at prayer time and can only be unlocked with the Parent PIN (or when the prayer break ends). Emergency calls remain available.\n\nPlease confirm your decision.")
+                        .setPositiveButton(if (store.isArabic) "تأكيد التفعيل" else "Confirm & Enable") { _, _ ->
+                            requireParentPin {
+                                store.prayerLockEnabled = true
+                                isChecked = true
+                            }
+                        }
+                        .setNegativeButton(s("cancel"), null)
+                        .show()
+                } else {
+                    isChecked = true
+                    requireParentPin {
+                        store.prayerLockEnabled = false
+                        isChecked = false
+                    }
+                }
+            }
+        }
         val swAdhan = Switch(this).apply { text = s("adhan_sw"); isChecked = store.adhanAudioEnabled; setTextColor(textPrimary()); setOnCheckedChangeListener { _, c -> requireParentPin { store.adhanAudioEnabled = c } } }
         val swSilent = Switch(this).apply {
             text = if (store.isArabic) "🔇 وضع الصمت التلقائي للمسجد (كتم الرنين وإعادته)" else "🔇 Mosque Auto-Silent (Mute & restore ringer)"
@@ -1094,19 +1168,26 @@ class MainActivity : AppCompatActivity() {
         updCard.addView(makeBtn(if (store.isArabic) "🚀 التحقق من التحديثات وتنزيلها" else "🚀 Check & Install Update", "#0284C7", "#0369A1") {
             val repo = repoIn.text.toString().trim(); store.updateRepo = repo
             if (!repo.contains("/")) return@makeBtn
-            Toast.makeText(this, if (store.isArabic) "جاري البحث..." else "Checking...", Toast.LENGTH_SHORT).show()
-            Thread {
-                val rel = UpdateManager.checkLatestRelease(this, repo)
-                uiHandler.post {
-                    if (rel == null) Toast.makeText(this, if (store.isArabic) "أنت على أحدث إصدار!" else "You are up to date!", Toast.LENGTH_SHORT).show()
-                    else AlertDialog.Builder(this)
-                        .setTitle(if (store.isArabic) "تحديث جديد (${rel.versionTag})" else "New Update (${rel.versionTag})")
-                        .setMessage(if (store.isArabic) "هل تريد تحميل وتثبيت التحديث الآن؟" else "Download and install now?")
-                        .setPositiveButton(if (store.isArabic) "تحديث الآن" else "Update Now") { _, _ ->
-                            Thread { UpdateManager.downloadAndInstallApk(this, rel.apkDownloadUrl) }.start()
-                        }.setNegativeButton(s("cancel"), null).show()
+            AlertDialog.Builder(this)
+                .setTitle(if (store.isArabic) "📋 إرشادات مهمة قبل تحديث التطبيق" else "📋 Important Pre-Update Instructions")
+                .setMessage(if (store.isArabic) "يرجى قبل تحديث التطبيق الدخول إلى مدير الملفات ← قسم ملفات APK (أو التنزيلات) وحذف أي ملف APK متبقٍ خاص بالتطبيق من إصدارات سابقة أو حديثة، حتى يتم التثبيت بنجاح بدون خطأ تحليل الحزمة.\n\nهل قمت بحذف الملفات القديمة وتريد المتابعة الآن؟" else "Before updating, please open your File Manager -> APK files (or Downloads) and delete any old or previous APK files for this app so the update installs smoothly without package parsing errors.\n\nProceed with checking for updates now?")
+                .setPositiveButton(if (store.isArabic) "نعم، متابعة التحديث" else "Yes, Continue") { _, _ ->
+                    Toast.makeText(this, if (store.isArabic) "جاري البحث..." else "Checking...", Toast.LENGTH_SHORT).show()
+                    Thread {
+                        val rel = UpdateManager.checkLatestRelease(this, repo)
+                        uiHandler.post {
+                            if (rel == null) Toast.makeText(this, if (store.isArabic) "أنت على أحدث إصدار!" else "You are up to date!", Toast.LENGTH_SHORT).show()
+                            else AlertDialog.Builder(this)
+                                .setTitle(if (store.isArabic) "تحديث جديد (${rel.versionTag})" else "New Update (${rel.versionTag})")
+                                .setMessage(if (store.isArabic) "هل تريد تحميل وتثبيت التحديث الآن؟" else "Download and install now?")
+                                .setPositiveButton(if (store.isArabic) "تحديث الآن" else "Update Now") { _, _ ->
+                                    Thread { UpdateManager.downloadAndInstallApk(this, rel.apkDownloadUrl) }.start()
+                                }.setNegativeButton(s("cancel"), null).show()
+                        }
+                    }.start()
                 }
-            }.start()
+                .setNegativeButton(s("cancel"), null)
+                .show()
         })
         col.addView(updCard)
 
