@@ -1,6 +1,7 @@
 package com.muslimtimekeeper.app.ui
 
 import android.app.AlertDialog
+import android.app.TimePickerDialog
 import android.app.admin.DevicePolicyManager
 import android.app.usage.UsageStatsManager
 import android.content.ComponentName
@@ -8,6 +9,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
@@ -34,6 +37,8 @@ import com.muslimtimekeeper.app.core.AdhkarData
 import com.muslimtimekeeper.app.core.AppRule
 import com.muslimtimekeeper.app.core.PrayerCalculator
 import com.muslimtimekeeper.app.core.PrefsStore
+import com.muslimtimekeeper.app.core.QuranData
+import com.muslimtimekeeper.app.core.ScheduleItem
 import com.muslimtimekeeper.app.core.Strings
 import com.muslimtimekeeper.app.core.UpdateManager
 import com.muslimtimekeeper.app.service.DeviceAdminProtectionReceiver
@@ -52,6 +57,9 @@ class MainActivity : AppCompatActivity() {
     private var prayerWaveView: AdhanWaveView? = null
     private var tasbeehTts: TextToSpeech? = null
     private var tasbeehSessionCount = 0
+    private var adhkarCategory = 0 // 0=Daily, 1=Morning, 2=Evening, 3=Sleep, 4=Waking
+    private var adhkarCatIdx = 0
+    private var manageSubTab = 0 // 0=Apps, 1=Data, 2=Safety
     private var showFadlInTasbeeh = true
     private lateinit var contentContainer: FrameLayout
     private lateinit var navButtons: List<TextView>
@@ -214,7 +222,7 @@ class MainActivity : AppCompatActivity() {
         val navBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; setBackgroundColor(bgBar()); setPadding(dp(8), dp(8), dp(8), dp(10))
         }
-        val labels = listOf(s("tab_home"), s("tab_apps"), s("tab_prayer"), s("tab_tasbeeh"), s("tab_data"), s("tab_safety"))
+        val labels = listOf(s("tab_home"), s("tab_quran"), s("tab_tasbeeh"), s("tab_schedule"), s("tab_prayer"), s("tab_manage"))
         navButtons = labels.mapIndexed { idx, txt ->
             TextView(this).apply {
                 text = txt; gravity = Gravity.CENTER; textSize = 10.5f; setTypeface(null, Typeface.BOLD); setPadding(dp(2), dp(8), dp(2), dp(8))
@@ -240,11 +248,11 @@ class MainActivity : AppCompatActivity() {
         }
         val pageView = when (index) {
             0 -> buildHomeTab()
-            1 -> buildAppsTab()
-            2 -> buildPrayerTab()
-            3 -> buildTasbeehTab()
-            4 -> buildDataTab()
-            else -> buildSafetyTab()
+            1 -> buildQuranTab()
+            2 -> buildTasbeehTab()
+            3 -> buildScheduleTab()
+            4 -> buildPrayerTab()
+            else -> buildManageTab()
         }
         contentContainer.removeAllViews()
         pageView.alpha = 0f; pageView.translationY = 20f
@@ -432,6 +440,28 @@ class MainActivity : AppCompatActivity() {
         addHourCtrl(if (store.isArabic) "بداية النوم" else "Sleep Start", store.bedtimeStartHour) { store.bedtimeStartHour = it }
         addHourCtrl(if (store.isArabic) "الاستيقاظ" else "Wake Up", store.bedtimeEndHour) { store.bedtimeEndHour = it }
         bedCard.addView(bedTimeRow)
+
+        val btnSleepTime = makeBtn(
+            if (store.isArabic) "⏰ تحديد ميعاد النوم بدقة (${String.format(Locale.US, "%02d:%02d", store.bedtimeStartHour, store.bedtimeStartMinute)})"
+            else "⏰ Set Exact Bedtime (${String.format(Locale.US, "%02d:%02d", store.bedtimeStartHour, store.bedtimeStartMinute)})",
+            btnNeutralBg(), btnNeutralBg(), btnNeutralFg()
+        ) {
+            TimePickerDialog(this, { _, h, m ->
+                store.bedtimeStartHour = h
+                store.bedtimeStartMinute = m
+                renderTab(0)
+            }, store.bedtimeStartHour, store.bedtimeStartMinute, false).show()
+        }
+        bedCard.addView(btnSleepTime)
+
+        val swSleepAdhkar = Switch(this).apply {
+            text = if (store.isArabic) "📿 تذكير بأذكار النوم والدلائل قبل الميعاد بـ 10 و5 دقائق" else "📿 Remind Sleep Adhkar & Evidence 10m & 5m before bedtime"
+            isChecked = store.sleepAdhkarReminderEnabled
+            setTextColor(textPrimary())
+            setPadding(0, dp(8), 0, 0)
+            setOnCheckedChangeListener { _, checked -> store.sleepAdhkarReminderEnabled = checked }
+        }
+        bedCard.addView(swSleepAdhkar)
         col.addView(bedCard)
 
         // 4. Weekly Report Quick Card
@@ -626,7 +656,7 @@ class MainActivity : AppCompatActivity() {
             .setPositiveButton(s("save")) { _, _ ->
                 val lim = (limIn.text.toString().toIntOrNull() ?: 60).coerceIn(1, 720)
                 val list = store.getAppRules(); list.removeAll { it.packageName.equals(pkg, true) }
-                list.add(AppRule(pkg, appName, lim)); store.saveAppRules(list); renderTab(1)
+                list.add(AppRule(pkg, appName, lim)); store.saveAppRules(list); run { manageSubTab = 0; renderTab(5) }
             }.setNegativeButton(s("cancel"), null).show()
     }
 
@@ -672,7 +702,7 @@ class MainActivity : AppCompatActivity() {
                                 }
                                 store.saveAppRules(list)
                                 Toast.makeText(this@MainActivity, if (store.isArabic) "تم تعديل الوقت إلى $newLim دقيقة!" else "Updated limit to $newLim min!", Toast.LENGTH_SHORT).show()
-                                renderTab(1)
+                                run { manageSubTab = 0; renderTab(5) }
                             }
                             .setNegativeButton(s("cancel"), null)
                             .show()
@@ -685,7 +715,7 @@ class MainActivity : AppCompatActivity() {
                 setTextColor(Color.WHITE); isAllCaps = false; textSize = 13f; setTypeface(null, Typeface.BOLD)
                 layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
                 setOnClickListener {
-                    requireParentPin { val list = store.getAppRules(); list.removeAll { it.packageName.equals(rule.packageName, true) }; store.saveAppRules(list); renderTab(1) }
+                    requireParentPin { val list = store.getAppRules(); list.removeAll { it.packageName.equals(rule.packageName, true) }; store.saveAppRules(list); run { manageSubTab = 0; renderTab(5) } }
                 }
             }
             actionRow.addView(btnEdit); actionRow.addView(btnRemove)
@@ -754,7 +784,7 @@ class MainActivity : AppCompatActivity() {
                 background = if (sel) gradientBg("#059669", "#10B981", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
                 setTextColor(if (sel) Color.WHITE else Color.parseColor(btnNeutralFg()))
                 layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
-                setOnClickListener { requireParentPin { store.prayerDurationMinutes = mins; renderTab(2) } }
+                setOnClickListener { requireParentPin { store.prayerDurationMinutes = mins; renderTab(4) } }
             }
             durRow.addView(b)
         }
@@ -831,162 +861,471 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Exception) { }
     }
 
-    // --- Tab 3: Dedicated Tasbeeh & Adhkar Tab (Curved Pearl Bead String like Reference Photo) ---
+    // --- Tab 1: Authentic King Fahd Madinah Mushaf (مصحف المدينة المنورة — 604 صفحة) ---
+    private fun buildQuranTab(): View {
+        val ar = store.isArabic
+        val scroll = ScrollView(this)
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(12), dp(24)) }
+
+        val curPage = store.lastMushafPage.coerceIn(1, 604)
+        val surah = QuranData.getSurahForPage(curPage)
+        val juz = QuranData.getJuzForPage(curPage)
+
+        // 1. Mushaf Header Bar (Surah Index + Juz Jump + Page Jump + Night Mode)
+        val barCard = makeCard(if (ar) "📖 مصحف المدينة المنورة الأصلي" else "📖 Al-Mushaf Al-Madani")
+        barCard.addView(TextView(this).apply {
+            text = if (ar) "سورة ${surah.nameAr}  •  الجزء $juz  •  صفحة $curPage / 604"
+            else "Surah ${surah.nameEn}  •  Juz $juz  •  Page $curPage / 604"
+            textSize = 14f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol()); gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(8))
+        })
+
+        val toolsRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun addTool(lbl: String, onClick: () -> Unit) {
+            val b = Button(this).apply {
+                text = lbl; isAllCaps = false; textSize = 11.5f; setTypeface(null, Typeface.BOLD)
+                background = gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                setTextColor(Color.parseColor(btnNeutralFg()))
+                layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
+                setOnClickListener { onClick() }
+            }
+            toolsRow.addView(b)
+        }
+
+        addTool(if (ar) "📚 السور" else "📚 Surahs") {
+            val dlgCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(12)) }
+            val searchIn = EditText(this).apply { hint = if (ar) "ابحث باسم السورة..." else "Search Surah..." }
+            val lv = ListView(this).apply { layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(380)) }
+            dlgCol.addView(searchIn); dlgCol.addView(lv)
+            val dlg = AlertDialog.Builder(this).setTitle(if (ar) "فهرس السور (114 سورة)" else "Surah Index (114)").setView(dlgCol).setNegativeButton(s("cancel"), null).create()
+            fun fill(q: String) {
+                val list = if (q.isBlank()) QuranData.surahs else QuranData.surahs.filter { it.nameAr.contains(q) || it.nameEn.contains(q, true) || it.number.toString() == q }
+                lv.adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, list.map {
+                    if (ar) "${it.number}. سورة ${it.nameAr}  (ص ${it.startPage} • ${it.ayahs} آية)" else "${it.number}. ${it.nameEn} (p.${it.startPage})"
+                })
+                lv.setOnItemClickListener { _, _, pos, _ ->
+                    store.lastMushafPage = list[pos].startPage
+                    dlg.dismiss()
+                    renderTab(1)
+                }
+            }
+            fill("")
+            searchIn.addTextChangedListener(object : TextWatcher {
+                override fun beforeTextChanged(s: CharSequence?, st: Int, c: Int, a: Int) {}
+                override fun onTextChanged(s: CharSequence?, st: Int, b: Int, c: Int) { fill(s?.toString() ?: "") }
+                override fun afterTextChanged(s: Editable?) {}
+            })
+            dlg.show()
+        }
+
+        addTool(if (ar) "📑 الأجزاء" else "📑 Juz") {
+            val items = (1..30).map { if (ar) "الجزء $it  (صفحة ${QuranData.juzStartPages[it - 1]})" else "Juz $it (p.${QuranData.juzStartPages[it - 1]})" }.toTypedArray()
+            AlertDialog.Builder(this).setTitle(if (ar) "اختر الجزء" else "Select Juz").setItems(items) { _, which ->
+                store.lastMushafPage = QuranData.juzStartPages[which]
+                renderTab(1)
+            }.show()
+        }
+
+        addTool(if (ar) "🔢 صفحة" else "🔢 Page") {
+            val pin = EditText(this).apply { setText(curPage.toString()); inputType = InputType.TYPE_CLASS_NUMBER }
+            AlertDialog.Builder(this).setTitle(if (ar) "انتقال إلى صفحة (1 - 604)" else "Go to Page (1 - 604)").setView(pin)
+                .setPositiveButton(s("save")) { _, _ ->
+                    val p = (pin.text.toString().toIntOrNull() ?: curPage).coerceIn(1, 604)
+                    store.lastMushafPage = p
+                    renderTab(1)
+                }.setNegativeButton(s("cancel"), null).show()
+        }
+
+        addTool(if (store.mushafNightMode) (if (ar) "☀️ نهار" else "☀️ Day") else (if (ar) "🌙 ليل" else "🌙 Night")) {
+            store.mushafNightMode = !store.mushafNightMode
+            renderTab(1)
+        }
+        barCard.addView(toolsRow)
+        col.addView(barCard)
+
+        // 2. Authentic Madinah Mushaf Page Viewer Card (Offline Cached!)
+        val pageCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+            background = gradientBg(
+                if (store.mushafNightMode) "#101622" else "#FCF8EC",
+                if (store.mushafNightMode) "#0B101A" else "#F7EED7",
+                18
+            ).apply { setStroke(dp(1), Color.parseColor("#B48A3E")) }
+            setPadding(dp(8), dp(10), dp(8), dp(10))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(12) }
+        }
+        val statusTv = TextView(this).apply {
+            text = if (ar) "جاري تحميل صفحة $curPage من مصحف المدينة..." else "Loading Madinah Mushaf page $curPage..."
+            textSize = 13f; setTextColor(if (store.mushafNightMode) Color.parseColor("#CBD5E1") else Color.parseColor("#475569"))
+            gravity = Gravity.CENTER; setPadding(dp(8), dp(20), dp(8), dp(20))
+        }
+        val pageImg = ImageView(this).apply {
+            adjustViewBounds = true
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+            visibility = View.GONE
+            if (store.mushafNightMode) {
+                val inv = ColorMatrix(floatArrayOf(
+                    -1f, 0f, 0f, 0f, 255f,
+                    0f, -1f, 0f, 0f, 255f,
+                    0f, 0f, -1f, 0f, 255f,
+                    0f, 0f, 0f, 1f, 0f
+                ))
+                colorFilter = ColorMatrixColorFilter(inv)
+            }
+        }
+        pageCard.addView(statusTv)
+        pageCard.addView(pageImg)
+        col.addView(pageCard)
+
+        Thread {
+            val bmp = QuranData.loadMushafPage(this, curPage)
+            uiHandler.post {
+                if (bmp != null) {
+                    pageImg.setImageBitmap(bmp)
+                    pageImg.visibility = View.VISIBLE
+                    statusTv.visibility = View.GONE
+                } else {
+                    statusTv.text = if (ar) "تعذّر تحميل الصفحة — تأكد من اتصال الإنترنت لأول مرة (يتم حفظ كل صفحة تلقائياً للقراءة بدون إنترنت لاحقاً)."
+                    else "Could not load page — check internet connection for first-time download (pages are cached offline automatically)."
+                }
+            }
+        }.start()
+
+        // 3. Previous / Next Page Navigation Row
+        val navRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val btnPrev = Button(this).apply {
+            text = if (ar) "◀ الصفحة السابقة" else "◀ Prev Page"
+            isAllCaps = false; textSize = 13.5f; setTypeface(null, Typeface.BOLD)
+            background = gradientBg(btnNeutralBg(), btnNeutralBg(), 12); setTextColor(Color.parseColor(btnNeutralFg()))
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginEnd = dp(6) }
+            setOnClickListener { if (curPage > 1) { store.lastMushafPage = curPage - 1; renderTab(1) } }
+        }
+        val btnNext = Button(this).apply {
+            text = if (ar) "الصفحة التالية ▶" else "Next Page ▶"
+            isAllCaps = false; textSize = 13.5f; setTypeface(null, Typeface.BOLD)
+            background = gradientBg("#059669", "#10B981", 12); setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, dp(44), 1f).apply { marginStart = dp(6) }
+            setOnClickListener { if (curPage < 604) { store.lastMushafPage = curPage + 1; renderTab(1) } }
+        }
+        navRow.addView(btnPrev); navRow.addView(btnNext)
+        col.addView(navRow)
+
+        scroll.addView(col)
+        return scroll
+    }
+
+    // --- Tab 2: Categorized Adhkar & Electronic Tasbeeh (Daily / Morning / Evening / Sleep / Waking) ---
     private fun buildTasbeehTab(): View {
         val ar = store.isArabic
         val scroll = ScrollView(this)
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(14), dp(14), dp(24)) }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(12), dp(24)) }
 
-        val list = AdhkarData.tasbeehLibrary
-        val selIdx = store.selectedTasbeehIndex.coerceIn(0, list.lastIndex)
+        // 1. Category Selector Bar (5 Categories!)
+        val catCard = makeCard(if (ar) "📿 الأذكار والتسبيح" else "📿 Adhkar & Tasbeeh")
+        val catScroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
+        val catRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val catNames = if (ar) listOf("📿 يومية (السبحة)", "☀️ أذكار الصباح", "🌇 أذكار المساء", "🌙 أذكار النوم", "🌅 الاستيقاظ")
+        else listOf("📿 Daily Tasbeeh", "☀️ Morning", "🌇 Evening", "🌙 Sleep", "🌅 Waking Up")
+
+        catNames.forEachIndexed { idx, lbl ->
+            val sel = (adhkarCategory == idx)
+            val b = Button(this).apply {
+                text = lbl; isAllCaps = false; textSize = 12f; setTypeface(null, Typeface.BOLD)
+                background = if (sel) gradientBg("#059669", "#10B981", 12) else gradientBg(btnNeutralBg(), btnNeutralBg(), 12)
+                setTextColor(if (sel) Color.WHITE else Color.parseColor(btnNeutralFg()))
+                setPadding(dp(14), dp(6), dp(14), dp(6))
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, dp(38)).apply { marginEnd = dp(6) }
+                setOnClickListener {
+                    adhkarCategory = idx
+                    adhkarCatIdx = 0
+                    tasbeehSessionCount = 0
+                    renderTab(2)
+                }
+            }
+            catRow.addView(b)
+        }
+        catScroll.addView(catRow)
+        catCard.addView(catScroll)
+
+        val list = when (adhkarCategory) {
+            1 -> AdhkarData.morningAdhkar
+            2 -> AdhkarData.eveningAdhkar
+            3 -> AdhkarData.sleepAdhkar
+            4 -> AdhkarData.wakingAdhkar
+            else -> AdhkarData.tasbeehLibrary
+        }
+        val selIdx = if (adhkarCategory == 0) store.selectedTasbeehIndex.coerceIn(0, list.lastIndex) else adhkarCatIdx.coerceIn(0, list.lastIndex)
         val item = list[selIdx]
 
-        // 1. Dhikr Picker + Bead Theme Selector Card
-        val topCard = makeCard(if (ar) "📿 السبحة الإلكترونية والأذكار" else "📿 Electronic Tasbeeh & Adhkar")
-        topCard.addView(makeBtn(if (ar) "📖 اختر الذكر / التسبيح (${list.size} ذكراً) ▼" else "📖 Choose Dhikr (${list.size} items) ▼", "#0284C7", "#0369A1") {
+        catCard.addView(makeBtn(
+            if (ar) "📖 اختيار الذكر (${selIdx + 1} من ${list.size}): ${item.titleAr} ▼"
+            else "📖 Select Dhikr (${selIdx + 1}/${list.size}): ${item.titleEn} ▼",
+            "#0284C7", "#0369A1"
+        ) {
             val titles = list.map { if (ar) "${it.titleAr}  (${it.target})" else "${it.titleEn}  (${it.target})" }.toTypedArray()
             AlertDialog.Builder(this)
-                .setTitle(if (ar) "اختر الذكر أو التسبيح" else "Select Dhikr / Tasbeeh")
+                .setTitle(catNames[adhkarCategory])
                 .setItems(titles) { _, which ->
-                    store.selectedTasbeehIndex = which
+                    if (adhkarCategory == 0) store.selectedTasbeehIndex = which else adhkarCatIdx = which
                     tasbeehSessionCount = 0
-                    renderTab(3)
+                    renderTab(2)
                 }
                 .setNegativeButton(s("cancel"), null)
                 .show()
         })
 
         // Bead color theme pills
-        val themeRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            setPadding(0, dp(10), 0, dp(2))
-        }
+        val themeRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(10), 0, dp(2)) }
         val themeLabels = if (ar) listOf("⚪ لؤلؤي", "🔵 سماوي", "🟢 زمردي", "🟡 ذهبي") else listOf("⚪ Pearl", "🔵 Blue", "🟢 Green", "🟡 Gold")
         themeLabels.forEachIndexed { tIdx, lbl ->
             val sel = (store.selectedBeadTheme == tIdx)
             val pill = Button(this).apply {
-                text = lbl
-                isAllCaps = false; textSize = 11.5f
+                text = lbl; isAllCaps = false; textSize = 11.5f
                 background = if (sel) gradientBg("#0284C7", "#0369A1", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
                 setTextColor(if (sel) Color.WHITE else Color.parseColor(btnNeutralFg()))
-                layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
-                setOnClickListener { store.selectedBeadTheme = tIdx; renderTab(3) }
+                layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
+                setOnClickListener { store.selectedBeadTheme = tIdx; renderTab(2) }
             }
             themeRow.addView(pill)
         }
-        topCard.addView(themeRow)
-        col.addView(topCard)
+        catCard.addView(themeRow)
+        col.addView(catCard)
 
-        // 2. Dhikr Text + Expandable Virtue (فضل الذكر) Card
+        // 2. Dhikr Text + Prophetic Virtue / Evidence (الدليل والفضل)
         val dhikrCard = makeCard()
         dhikrCard.addView(TextView(this).apply {
             text = if (ar) item.textAr else item.textEn
-            textSize = 18.5f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(textPrimary())
-            gravity = Gravity.CENTER
+            textSize = 18f; setTypeface(null, Typeface.BOLD); setTextColor(textPrimary()); gravity = Gravity.CENTER
             setPadding(dp(4), dp(4), dp(4), dp(10))
         })
-
         val fadlTv = TextView(this).apply {
             text = if (ar) item.fadlAr else item.fadlEn
-            textSize = 13f
-            setTextColor(accentCol())
-            gravity = Gravity.CENTER
+            textSize = 13f; setTextColor(accentCol()); gravity = Gravity.CENTER
             visibility = if (showFadlInTasbeeh) View.VISIBLE else View.GONE
             setPadding(dp(6), dp(8), dp(6), dp(4))
         }
         val fadlToggle = TextView(this).apply {
-            text = if (ar) (if (showFadlInTasbeeh) "فضل الذكر ▲" else "فضل الذكر ▼") else (if (showFadlInTasbeeh) "Virtue ▲" else "Virtue ▼")
-            textSize = 12f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(accentCol())
-            gravity = Gravity.CENTER
-            background = gradientBg(btnNeutralBg(), btnNeutralBg(), 12)
-            setPadding(dp(14), dp(5), dp(14), dp(5))
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                gravity = Gravity.CENTER_HORIZONTAL
-            }
+            text = if (ar) (if (showFadlInTasbeeh) "فضل الذكر والدليل ▲" else "فضل الذكر والدليل ▼") else (if (showFadlInTasbeeh) "Virtue & Evidence ▲" else "Virtue & Evidence ▼")
+            textSize = 12f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol()); gravity = Gravity.CENTER
+            background = gradientBg(btnNeutralBg(), btnNeutralBg(), 12); setPadding(dp(14), dp(5), dp(14), dp(5))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { gravity = Gravity.CENTER_HORIZONTAL }
             setOnClickListener {
                 showFadlInTasbeeh = !showFadlInTasbeeh
                 fadlTv.visibility = if (showFadlInTasbeeh) View.VISIBLE else View.GONE
-                text = if (ar) (if (showFadlInTasbeeh) "فضل الذكر ▲" else "فضل الذكر ▼") else (if (showFadlInTasbeeh) "Virtue ▲" else "Virtue ▼")
+                text = if (ar) (if (showFadlInTasbeeh) "فضل الذكر والدليل ▲" else "فضل الذكر والدليل ▼") else (if (showFadlInTasbeeh) "Virtue & Evidence ▲" else "Virtue & Evidence ▼")
             }
         }
-        dhikrCard.addView(fadlToggle)
-        dhikrCard.addView(fadlTv)
+        dhikrCard.addView(fadlToggle); dhikrCard.addView(fadlTv)
         col.addView(dhikrCard)
 
-        // 3. Interactive Diagonal Pearl Bead String Card
+        // 3. Diagonal Curved 3D Pearl Bead Tasbeeh + Auto-Advance for Fixed Adhkar!
         val beadCard = makeCard()
         val countTv = TextView(this).apply {
             text = "$tasbeehSessionCount / ${item.target}"
-            textSize = 36f
-            setTypeface(null, Typeface.BOLD)
-            setTextColor(accentCol())
-            gravity = Gravity.CENTER
+            textSize = 36f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol()); gravity = Gravity.CENTER
         }
         val totalTv = TextView(this).apply {
-            text = if (ar) "إجمالي تسبيحاتك: ${store.totalTasbeehCount}  •  اضغط على السبحة لتنزيل حبة" else "Total Tasbeeh: ${store.totalTasbeehCount}  •  Tap beads to slide one"
-            textSize = 11.5f
-            setTextColor(textMuted())
-            gravity = Gravity.CENTER
-            setPadding(0, dp(2), 0, dp(6))
+            text = if (ar) "إجمالي تسبيحاتك: ${store.totalTasbeehCount}  •  اضغط على السبحة لتنزيل حبة" else "Total: ${store.totalTasbeehCount}  •  Tap beads to slide one"
+            textSize = 11.5f; setTextColor(textMuted()); gravity = Gravity.CENTER; setPadding(0, dp(2), 0, dp(6))
         }
 
         val beadView = BeadTasbeehView(this).apply {
             beadTheme = store.selectedBeadTheme
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(175))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(170))
             onBeadTapped = {
                 tasbeehSessionCount++
                 store.totalTasbeehCount = store.totalTasbeehCount + 1
                 countTv.text = "$tasbeehSessionCount / ${item.target}"
-                totalTv.text = if (ar) "إجمالي تسبيحاتك: ${store.totalTasbeehCount}" else "Total Tasbeeh: ${store.totalTasbeehCount}"
-                if (tasbeehSessionCount == item.target) {
-                    Toast.makeText(
-                        this@MainActivity,
-                        if (ar) "ما شاء الله! أتممت ${item.target} تسبيحة" else "MashaAllah! Completed ${item.target}",
-                        Toast.LENGTH_SHORT
-                    ).show()
+                totalTv.text = if (ar) "إجمالي تسبيحاتك: ${store.totalTasbeehCount}" else "Total: ${store.totalTasbeehCount}"
+                if (tasbeehSessionCount >= item.target) {
+                    if (adhkarCategory > 0 && selIdx < list.lastIndex) {
+                        adhkarCatIdx = selIdx + 1
+                        tasbeehSessionCount = 0
+                        renderTab(2)
+                    } else {
+                        Toast.makeText(
+                            this@MainActivity,
+                            if (ar) "ما شاء الله! أتممت الذكر بنجاح" else "MashaAllah! Completed!",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 }
             }
         }
 
-        val actionRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(0, dp(8), 0, dp(2))
-        }
+        val actionRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(0, dp(8), 0, dp(2)) }
         val btnReset = Button(this).apply {
             text = if (ar) "↻ إعادة" else "↻ Reset"
             isAllCaps = false; textSize = 13f
-            background = gradientBg(btnNeutralBg(), btnNeutralBg(), 12)
-            setTextColor(Color.parseColor(btnNeutralFg()))
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(8) }
-            setOnClickListener {
-                tasbeehSessionCount = 0
-                countTv.text = "0 / ${item.target}"
-            }
+            background = gradientBg(btnNeutralBg(), btnNeutralBg(), 12); setTextColor(Color.parseColor(btnNeutralFg()))
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(6) }
+            setOnClickListener { tasbeehSessionCount = 0; countTv.text = "0 / ${item.target}" }
         }
         val btnListen = Button(this).apply {
-            text = if (ar) "🔊 استماع للذكر" else "🔊 Listen"
+            text = if (ar) "🔊 استماع" else "🔊 Listen"
             isAllCaps = false; textSize = 13f
-            background = gradientBg("#0284C7", "#0369A1", 12)
-            setTextColor(Color.WHITE)
-            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
+            background = gradientBg("#0284C7", "#0369A1", 12); setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(6) }
             setOnClickListener { speakTasbeeh(if (ar) item.textAr else item.textEn) }
         }
-        actionRow.addView(btnReset)
-        actionRow.addView(btnListen)
-
-        beadCard.addView(beadView)
-        beadCard.addView(countTv)
-        beadCard.addView(totalTv)
-        beadCard.addView(actionRow)
+        val btnNextDhikr = Button(this).apply {
+            text = if (ar) "التالي ◀" else "Next ▶"
+            isAllCaps = false; textSize = 13f
+            background = gradientBg("#059669", "#10B981", 12); setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
+            setOnClickListener {
+                val nxt = (selIdx + 1) % list.size
+                if (adhkarCategory == 0) store.selectedTasbeehIndex = nxt else adhkarCatIdx = nxt
+                tasbeehSessionCount = 0
+                renderTab(2)
+            }
+        }
+        actionRow.addView(btnReset); actionRow.addView(btnListen); actionRow.addView(btnNextDhikr)
+        beadCard.addView(beadView); beadCard.addView(countTv); beadCard.addView(totalTv); beadCard.addView(actionRow)
         col.addView(beadCard)
 
         scroll.addView(col)
         return scroll
+    }
+
+    // --- Tab 3: Daily Schedule Tab (جدول الدروس والمواعيد + تذكير قبلها بـ 5 دقائق) ---
+    private fun buildScheduleTab(): View {
+        val ar = store.isArabic
+        val scroll = ScrollView(this)
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(14), dp(14), dp(24)) }
+
+        val hdrCard = makeCard(if (ar) "📅 الجدول اليومي (الدروس والمواعيد)" else "📅 Daily Schedule (Lessons & Tasks)")
+        hdrCard.addView(TextView(this).apply {
+            text = if (ar) "أضف جدول دروسك ومواعيدك اليومية، وسيقوم الهاتف بإرسال إشعار تذكير تلقائي قبل كل موعد بـ 5 دقائق."
+            else "Add your daily lessons and appointments; your phone will automatically notify you 5 minutes before each one."
+            textSize = 12.5f; setTextColor(textMuted())
+        })
+        hdrCard.addView(makeBtn(if (ar) "➕ إضافة درس أو موعد جديد" else "➕ Add Lesson / Appointment", "#059669", "#10B981") {
+            var pickedH = 16
+            var pickedM = 0
+            val dlgBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(12), dp(18), dp(12)) }
+            val titleIn = EditText(this).apply { hint = if (ar) "اسم الدرس أو الموعد (مثلاً: درس الرياضيات)" else "Lesson or task title" }
+            val timeBtn = Button(this).apply {
+                text = if (ar) "⏰ اختر الوقت: 04:00 م" else "⏰ Pick Time: 16:00"
+                isAllCaps = false
+                setOnClickListener {
+                    TimePickerDialog(this@MainActivity, { _, h, m ->
+                        pickedH = h; pickedM = m
+                        text = String.format(Locale.US, "⏰ %02d:%02d", h, m)
+                    }, pickedH, pickedM, false).show()
+                }
+            }
+            dlgBox.addView(titleIn); dlgBox.addView(timeBtn)
+            AlertDialog.Builder(this)
+                .setTitle(if (ar) "موعد جديد في الجدول اليومي" else "New Schedule Item")
+                .setView(dlgBox)
+                .setPositiveButton(s("save")) { _, _ ->
+                    val t = titleIn.text.toString().trim()
+                    if (t.isNotEmpty()) {
+                        val items = store.getScheduleItems()
+                        items.add(ScheduleItem(System.currentTimeMillis().toString(), t, pickedH, pickedM, true, ""))
+                        store.saveScheduleItems(items)
+                        renderTab(3)
+                    }
+                }
+                .setNegativeButton(s("cancel"), null)
+                .show()
+        })
+        col.addView(hdrCard)
+
+        val today = store.todayStr()
+        val items = store.getScheduleItems()
+        if (items.isEmpty()) {
+            val emptyCard = makeCard()
+            emptyCard.addView(TextView(this).apply {
+                text = if (ar) "جدولك اليومي فارغ حالياً — اضغط الزر أعلاه لإضافة أول درس أو موعد!" else "Your daily schedule is empty — tap above to add your first lesson or task!"
+                textSize = 13.5f; setTextColor(textMuted()); gravity = Gravity.CENTER; setPadding(dp(8), dp(18), dp(8), dp(18))
+            })
+            col.addView(emptyCard)
+        } else {
+            for (item in items) {
+                val isDone = (item.doneDate == today)
+                val itemCard = makeCard()
+                val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                val timeBadge = TextView(this).apply {
+                    text = String.format(Locale.US, "⏰ %02d:%02d", item.hour, item.minute)
+                    textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(Color.WHITE)
+                    background = gradientBg(if (isDone) "#059669" else "#0284C7", if (isDone) "#10B981" else "#0EA5E9", 10)
+                    setPadding(dp(10), dp(5), dp(10), dp(5))
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(10) }
+                }
+                val titleTv = TextView(this).apply {
+                    text = if (isDone) "✅ ${item.title}" else item.title
+                    textSize = 15.5f; setTypeface(null, Typeface.BOLD); setTextColor(if (isDone) Color.parseColor("#10B981") else textPrimary())
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                }
+                top.addView(timeBadge); top.addView(titleTv)
+                itemCard.addView(top)
+
+                val rowBtns = LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(10) }
+                }
+                val btnDone = Button(this).apply {
+                    text = if (isDone) (if (ar) "تراجع" else "Undo") else (if (ar) "✓ تم الإنجاز" else "✓ Mark Done")
+                    isAllCaps = false; textSize = 12.5f
+                    background = gradientBg(btnNeutralBg(), btnNeutralBg(), 10); setTextColor(Color.parseColor(btnNeutralFg()))
+                    layoutParams = LinearLayout.LayoutParams(0, dp(38), 1.2f).apply { marginEnd = dp(8) }
+                    setOnClickListener {
+                        val updated = store.getScheduleItems().map { if (it.id == item.id) it.copy(doneDate = if (isDone) "" else today) else it }
+                        store.saveScheduleItems(updated); renderTab(3)
+                    }
+                }
+                val btnDel = Button(this).apply {
+                    text = s("remove"); isAllCaps = false; textSize = 12.5f
+                    background = gradientBg("#DC2626", "#EF4444", 10); setTextColor(Color.WHITE)
+                    layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f)
+                    setOnClickListener {
+                        val updated = store.getScheduleItems().filter { it.id != item.id }
+                        store.saveScheduleItems(updated); renderTab(3)
+                    }
+                }
+                rowBtns.addView(btnDone); rowBtns.addView(btnDel)
+                itemCard.addView(rowBtns)
+                col.addView(itemCard)
+            }
+        }
+        scroll.addView(col)
+        return scroll
+    }
+
+    // --- Tab 5: Management Hub (Apps + Internet Data Quota + Safety & OTA) ---
+    private fun buildManageTab(): View {
+        val ar = store.isArabic
+        val wrapper = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+
+        val subBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(12), dp(10), dp(12), dp(4))
+        }
+        val subLabels = if (ar) listOf("🎮 التطبيقات", "📶 الإنترنت", "🛡️ الحماية والتحديث") else listOf("🎮 Apps", "📶 Data", "🛡️ Safety & OTA")
+        subLabels.forEachIndexed { idx, lbl ->
+            val sel = (manageSubTab == idx)
+            val b = Button(this).apply {
+                text = lbl; isAllCaps = false; textSize = 12f; setTypeface(null, Typeface.BOLD)
+                background = if (sel) gradientBg("#0284C7", "#0EA5E9", 12) else gradientBg(btnNeutralBg(), btnNeutralBg(), 12)
+                setTextColor(if (sel) Color.WHITE else Color.parseColor(btnNeutralFg()))
+                layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
+                setOnClickListener { manageSubTab = idx; renderTab(5) }
+            }
+            subBar.addView(b)
+        }
+        wrapper.addView(subBar)
+
+        val content = when (manageSubTab) {
+            0 -> buildAppsTab()
+            1 -> buildDataTab()
+            else -> buildSafetyTab()
+        }
+        content.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f)
+        wrapper.addView(content)
+        return wrapper
     }
 
     // --- Tab 4: Device Internet Data Quota (GB Ring, Consumed, Remaining, %, Auto Cut-off) ---
@@ -1067,7 +1406,7 @@ class MainActivity : AppCompatActivity() {
                         store.isInternetBlockedByQuota = false
                         startService(Intent(this@MainActivity, SafeDnsVpnService::class.java).apply { action = if (store.webSafetyEnabled) "SAFE_DNS" else "STOP_VPN" })
                     }
-                    renderTab(4)
+                    run { manageSubTab = 1; renderTab(5) }
                 }
             }
         }
@@ -1091,7 +1430,7 @@ class MainActivity : AppCompatActivity() {
                             store.isInternetBlockedByQuota = false
                             startService(Intent(this@MainActivity, SafeDnsVpnService::class.java).apply { action = if (store.webSafetyEnabled) "SAFE_DNS" else "STOP_VPN" })
                         }
-                        renderTab(4)
+                        run { manageSubTab = 1; renderTab(5) }
                     }
                 }
             }
@@ -1105,7 +1444,7 @@ class MainActivity : AppCompatActivity() {
                 store.isInternetBlockedByQuota = false
                 startService(Intent(this, SafeDnsVpnService::class.java).apply { action = if (store.webSafetyEnabled) "SAFE_DNS" else "STOP_VPN" })
                 Toast.makeText(this, if (store.isArabic) "تم تصفير استهلاك الإنترنت!" else "Data usage reset!", Toast.LENGTH_SHORT).show()
-                renderTab(4)
+                run { manageSubTab = 1; renderTab(5) }
             }
         })
         col.addView(ctrlCard)

@@ -224,6 +224,7 @@ class GuardianService : Service() {
         val notif = NotificationCompat.Builder(this, chId)
             .setContentTitle(if (store.isArabic) "⏰ تنبيه حارس وقت المسلم" else "⏰ Muslim Time Keeper Alert")
             .setContentText(msg)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(msg))
             .setSmallIcon(R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
@@ -283,9 +284,61 @@ class GuardianService : Service() {
         }
     }
 
+    private fun checkProactiveReminders() {
+        val ar = store.isArabic
+        val nowCal = Calendar.getInstance()
+        val nowMinOfDay = nowCal.get(Calendar.HOUR_OF_DAY) * 60 + nowCal.get(Calendar.MINUTE)
+
+        // 1. Upcoming Prayer Reminders (5 min & 3 min before prayer)
+        val nxtP = PrayerCalculator.getNextPrayer(store.latitude, store.longitude, store.timezoneOffset, ar)
+        val secToPr = ((nxtP.second - System.currentTimeMillis()) / 1000L).toInt()
+        if (secToPr in 181..300) {
+            sendPreAlert("pr5_${nxtP.first}", if (ar) "🕌 اقتربت صلاة ${nxtP.first} — متبقي 5 دقائق! استعد للوضوء والصلاة." else "🕌 ${nxtP.first} prayer is in 5 minutes!")
+        } else if (secToPr in 1..180) {
+            sendPreAlert("pr3_${nxtP.first}", if (ar) "🕌 اقتربت صلاة ${nxtP.first} — متبقي 3 دقائق فقط!" else "🕌 ${nxtP.first} prayer is in 3 minutes!")
+        }
+
+        // 2. Bedtime Sleep Adhkar Reminder (10 min & 5 min before user's bedtime) with Prophetic Evidence!
+        if (store.sleepAdhkarReminderEnabled) {
+            val bedMinOfDay = store.bedtimeStartHour * 60 + store.bedtimeStartMinute
+            var diffBed = bedMinOfDay - nowMinOfDay
+            if (diffBed < -720) diffBed += 1440
+            if (diffBed in 6..10) {
+                sendPreAlert(
+                    "sleep_adhkar_10",
+                    if (ar) "🌙 اقترب ميعاد النوم (بعد 10 دقائق)! لا تنسَ أذكار النوم لأنها تقي من الشيطان؛ قال النبي ﷺ: «إذا أويت إلى فراشك فاقرأ آية الكرسي؛ فإنه لن يزال عليك من الله حافظ ولا يقربك شيطان حتى تصبح» (رواه البخاري)."
+                    else "🌙 Bedtime is in 10 minutes! Don't forget Sleep Adhkar (Ayat al-Kursi & Al-Mu'awwidhat) for Allah's protection until morning (Sahih Bukhari)."
+                )
+            } else if (diffBed in 1..5) {
+                sendPreAlert(
+                    "sleep_adhkar_5",
+                    if (ar) "🌙 متبقي 5 دقائق على ميعاد النوم! اقرأ آية الكرسي وآخر آيتين من البقرة والمعوذات؛ قال ﷺ: «من قرأ بالآيتين من آخر سورة البقرة في ليلة كفتاه» (متفق عليه)."
+                    else "🌙 5 minutes until bedtime! Recite Ayat al-Kursi and the last two verses of Al-Baqarah — they suffice you against all harm (Bukhari & Muslim)."
+                )
+            }
+        }
+
+        // 3. Daily Schedule 5-Minute Pre-Alerts for lessons & appointments!
+        val today = store.todayStr()
+        for (item in store.getScheduleItems()) {
+            if (!item.enabled || item.doneDate == today) continue
+            val itemMin = item.hour * 60 + item.minute
+            val diff = itemMin - nowMinOfDay
+            if (diff in 1..5) {
+                val tStr = String.format("%02d:%02d", item.hour, item.minute)
+                sendPreAlert(
+                    "sched_${item.id}",
+                    if (ar) "📅 تذكير بالجدول اليومي: متبقي $diff دقائق على موعد «${item.title}» (الساعة $tStr)!"
+                    else "📅 Daily Schedule Reminder: '${item.title}' starts in $diff min ($tStr)!"
+                )
+            }
+        }
+    }
+
     private fun evaluateRules() {
         store.ensureToday()
         if (tickCounter % 3 == 0) updateDataQuotaUsage()
+        if (tickCounter % 15 == 0) checkProactiveReminders()
         if (tickCounter % 60 == 0) {
             store.recordDayStats(store.todayStr(), store.phoneSecondsUsedToday, store.dataUsedTodayBytes)
         }
@@ -353,10 +406,6 @@ class GuardianService : Service() {
         }
 
         // 3. Prayer Time Lock + Calm Tasbeeh + Adhan (Allows Emergency Phone Calls Only)
-        val nxtP = PrayerCalculator.getNextPrayer(store.latitude, store.longitude, store.timezoneOffset, store.isArabic)
-        val secToPr = ((nxtP.second - System.currentTimeMillis()) / 1000L).toInt()
-        if (secToPr in 121..300) sendPreAlert("pr5_${nxtP.first}", if (store.isArabic) "🕌 الصلاة القادمة هي ${nxtP.first} — متبقي 5 دقائق!" else "🕌 Next prayer is ${nxtP.first} — 5 minutes left!")
-        if (secToPr in 1..120) sendPreAlert("pr2_${nxtP.first}", if (store.isArabic) "🕌 الصلاة القادمة هي ${nxtP.first} — متبقي دقيقتان فقط!" else "🕌 Next prayer is ${nxtP.first} — only 2 minutes left!")
         if (activePrayer != null) {
             if (isAllowedCallPackage(fg)) {
                 overlay.hide()

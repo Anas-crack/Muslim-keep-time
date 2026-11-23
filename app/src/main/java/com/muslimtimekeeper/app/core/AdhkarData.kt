@@ -166,4 +166,236 @@ object AdhkarData {
             33
         )
     )
+
+    /**
+     * Authentic Morning Adhkar (أذكار الصباح)
+     */
+    val morningAdhkar: List<TasbeehItem> = listOf(
+        TasbeehItem(
+            "آية الكرسي", "Ayat al-Kursi",
+            "اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ ۚ لَّهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ ۗ مَن ذَا الَّذِي يَشْفَعُ عِندَهُ إِلَّا بِإِذْنِهِ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَيْءٍ مِّنْ عِلْمِهِ إِلَّا بِمَا شَاءَ ۚ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ ۖ وَلَا يَئُودُهُ حِفْظُهُمَا ۚ وَهُوَ الْعَلِيُّ الْعَظِيمُ",
+            "Ayat al-Kursi (Surah Al-Baqarah 2:255)",
+            "الدليل: من قالها حين يصبح أُجير من الجن حتى يمسي (رواه الحاكم وصححه الألباني).",
+            "Evidence: Protects you from Jinn until evening.",
+            1
+        ),
+        TasbeehItem(
+            "المعوذات (الإخلاص والفلق والناس)", "Al-Ikhlas, Al-Falaq & An-Nas",
+            "قُلْ هُوَ اللَّهُ أَحَدٌ ... / قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ ... / قُلْ أَعُوذُ بِرَبِّ النَّاسِ ...",
+            "Recite Surah Al-Ikhlas, Al-Falaq, and An-Nas (3 times each)",
+            "الدليل: قال النبي ﷺ: «قل هو الله أحد والمعوذتين حين تمسي وحين تصبح ثلاث مرات تكفيك من كل شيء» (أبو داود والترمذي).",
+            "Evidence: Suffices you against every harm (Abu Dawud & Tirmidhi).",
+            3
+        ),
+        TasbeehItem(
+            "أصبحنا وأصبح الملك لله", "Asbahna wa Asbahal-Mulk",
+            "أَصْبَحْنَا وَأَصْبَحَ الْمُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ، لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ، رَبِّ أَسْأَلُكَ خَيْرَ مَا فِي هَذَا الْيَوْمِ وَخَيْرَ مَا بَعْدَهُ، وَأَعُوذُ بِكَ مِنْ شَرِّ مَا فِي هَذَا الْيَوْمِ وَشَرِّ مَا بَعْدَهُ",
+            "We have reached the morning and at this very time unto Allah belongs all sovereignty...",
+            "الدليل: كان النبي ﷺ يقوله كل صباح (رواه مسلم).",
+            "Evidence: Recited every morning by the Prophet ﷺ (Sahih Muslim).",
+            1
+        ),
+        TasbeehItem(
+            "سيد الاستغفار", "Sayyidul Istighfar",
+            "اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ",
+            "O Allah, You are my Lord, none has the right to be worshipped except You...",
+            "الدليل: من قالها موقناً بها حين يصبح فمات من يومه دخل الجنة (رواه البخاري).",
+            "Evidence: Whoever says it with conviction in the morning and passes away that day enters Paradise (Bukhari).",
+            1
+        ),
+        TasbeehItem(
+            "بسم الله الذي لا يضر مع اسمه شيء", "Bismillah Protection",
+            "بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ",
+            "In the name of Allah, with whose name nothing on earth or in heaven can cause harm.",
+            "الدليل: من قالها ثلاثاً إذا أصبح لم تصبه فجأة بلاء حتى يمسي (أبو داود والترمذي).",
+            "Evidence: Nothing will harm you until evening (Abu Dawud & Tirmidhi).",
+            3
+        ),
+        TasbeehItem(
+            "اللهم بك أصبحنا", "Allahumma Bika Asbahna",
+            "اللَّهُمَّ بِكَ أَصْبَحْنَا، وَبِكَ أَمْسَيْنَا، وَبِكَ نَحْيَا، وَبِكَ نَمُوتُ وَإِلَيْكَ النُّشُورُ",
+            "O Allah, by Your leave we have reached the morning and by Your leave we reach the evening...",
+            "الدليل: رواه الترمذي وصححه الألباني.",
+            "Evidence: Narrated by At-Tirmidhi.",
+            1
+        ),
+        TasbeehItem(
+            "حسبي الله لا إله إلا هو", "HasbiyAllahu",
+            "حَسْبِيَ اللَّهُ لَا إِلَهَ إِلَّا هُوَ عَلَيْهِ تَوَكَّلْتُ وَهُوَ رَبُّ الْعَرْشِ الْعَظِيمِ",
+            "Allah is sufficient for me; on Him I rely.",
+            "الدليل: من قالها حين يصبح سبع مرات كفاه الله ما أهمه من أمر الدنيا والآخرة (أبو داود).",
+            "Evidence: Suffices for all worldly and hereafter concerns (Abu Dawud).",
+            7
+        ),
+        TasbeehItem(
+            "رضيت بالله رباً", "Radeetu Billahi",
+            "رَضِيتُ بِاللَّهِ رَبًّا، وَبِالْإِسْلَامِ دِينًا، وَبِمُحَمَّدٍ ﷺ نَبِيًّا",
+            "I am pleased with Allah as my Lord, Islam as my religion, and Muhammad ﷺ as my Prophet.",
+            "الدليل: كان حقاً على الله أن يرضيه يوم القيامة (أبو داود).",
+            "Evidence: Allah promises to please them on the Day of Judgment (Abu Dawud).",
+            3
+        )
+    )
+
+    /**
+     * Authentic Evening Adhkar (أذكار المساء)
+     */
+    val eveningAdhkar: List<TasbeehItem> = listOf(
+        TasbeehItem(
+            "آية الكرسي", "Ayat al-Kursi",
+            "اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ ۚ لَّهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ ۗ مَن ذَا الَّذِي يَشْفَعُ عِندَهُ إِلَّا بِإِذْنِهِ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَيْءٍ مِّنْ عِلْمِهِ إِلَّا بِمَا شَاءَ ۚ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ ۖ وَلَا يَئُودُهُ حِفْظُهُمَا ۚ وَهُوَ الْعَلِيُّ الْعَظِيمُ",
+            "Ayat al-Kursi (Surah Al-Baqarah 2:255)",
+            "الدليل: من قالها حين يمسي أُجير من الجن حتى يصبح (رواه الحاكم).",
+            "Evidence: Protects you from Jinn until morning.",
+            1
+        ),
+        TasbeehItem(
+            "المعوذات ثلاثاً", "Al-Mu'awwidhat (3x)",
+            "قُلْ هُوَ اللَّهُ أَحَدٌ ... / قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ ... / قُلْ أَعُوذُ بِرَبِّ النَّاسِ ...",
+            "Recite Surah Al-Ikhlas, Al-Falaq, and An-Nas (3 times each)",
+            "الدليل: تكفيك من كل شيء حتى تصبح (أبو داود والترمذي).",
+            "Evidence: Suffices you against every harm until morning.",
+            3
+        ),
+        TasbeehItem(
+            "أمسينا وأمسى الملك لله", "Amsayna wa Amsal-Mulk",
+            "أَمْسَيْنَا وَأَمْسَى الْمُلْكُ لِلَّهِ، وَالْحَمْدُ لِلَّهِ، لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ، رَبِّ أَسْأَلُكَ خَيْرَ مَا فِي هَذِهِ اللَّيْلَةِ وَخَيْرَ مَا بَعْدَهَا، وَأَعُوذُ بِكَ مِنْ شَرِّ مَا فِي هَذِهِ اللَّيْلَةِ وَشَرِّ مَا بَعْدَهَا",
+            "We have reached the evening and unto Allah belongs all sovereignty...",
+            "الدليل: كان النبي ﷺ يقوله كل مساء (رواه مسلم).",
+            "Evidence: Recited every evening by the Prophet ﷺ (Sahih Muslim).",
+            1
+        ),
+        TasbeehItem(
+            "سيد الاستغفار", "Sayyidul Istighfar",
+            "اللَّهُمَّ أَنْتَ رَبِّي لَا إِلَهَ إِلَّا أَنْتَ، خَلَقْتَنِي وَأَنَا عَبْدُكَ، وَأَنَا عَلَى عَهْدِكَ وَوَعْدِكَ مَا اسْتَطَعْتُ، أَعُوذُ بِكَ مِنْ شَرِّ مَا صَنَعْتُ، أَبُوءُ لَكَ بِنِعْمَتِكَ عَلَيَّ، وَأَبُوءُ بِذَنْبِي فَاغْفِرْ لِي فَإِنَّهُ لَا يَغْفِرُ الذُّنُوبَ إِلَّا أَنْتَ",
+            "O Allah, You are my Lord, none has the right to be worshipped except You...",
+            "الدليل: من قالها موقناً بها حين يمسي فمات من ليلته دخل الجنة (رواه البخاري).",
+            "Evidence: Entering Paradise if one passes away that night (Bukhari).",
+            1
+        ),
+        TasbeehItem(
+            "أعوذ بكلمات الله التامات", "Protection from Harm",
+            "أَعُوذُ بِكَلِمَاتِ اللَّهِ التَّامَّاتِ مِنْ شَرِّ مَا خَلَقَ",
+            "I seek refuge in the perfect words of Allah from the evil of what He created.",
+            "الدليل: من قالها حين يمسي ثلاثاً لم يضره شيء تلك الليلة (رواه مسلم).",
+            "Evidence: Nothing will harm you that night (Sahih Muslim).",
+            3
+        ),
+        TasbeehItem(
+            "بسم الله الذي لا يضر مع اسمه شيء", "Bismillah Protection",
+            "بِسْمِ اللَّهِ الَّذِي لَا يَضُرُّ مَعَ اسْمِهِ شَيْءٌ فِي الْأَرْضِ وَلَا فِي السَّمَاءِ وَهُوَ السَّمِيعُ الْعَلِيمُ",
+            "In the name of Allah, with whose name nothing can cause harm.",
+            "الدليل: من قالها ثلاثاً حين يمسي لم يضره شيء حتى يصبح (أبو داود).",
+            "Evidence: Protects from sudden affliction until morning (Abu Dawud).",
+            3
+        ),
+        TasbeehItem(
+            "اللهم بك أمسينا", "Allahumma Bika Amsayna",
+            "اللَّهُمَّ بِكَ أَمْسَيْنَا، وَبِكَ أَصْبَحْنَا، وَبِكَ نَحْيَا، وَبِكَ نَمُوتُ وَإِلَيْكَ الْمَصِيرُ",
+            "O Allah, by Your leave we have reached the evening and unto You is our return.",
+            "الدليل: رواه الترمذي وصححه الألباني.",
+            "Evidence: Narrated by At-Tirmidhi.",
+            1
+        )
+    )
+
+    /**
+     * Authentic Sleep Adhkar (أذكار النوم — مع الدلائل النبوية)
+     */
+    val sleepAdhkar: List<TasbeehItem> = listOf(
+        TasbeehItem(
+            "آية الكرسي قبل النوم", "Ayat al-Kursi Before Sleep",
+            "اللَّهُ لَا إِلَٰهَ إِلَّا هُوَ الْحَيُّ الْقَيُّومُ ۚ لَا تَأْخُذُهُ سِنَةٌ وَلَا نَوْمٌ ۚ لَّهُ مَا فِي السَّمَاوَاتِ وَمَا فِي الْأَرْضِ ۗ مَن ذَا الَّذِي يَشْفَعُ عِندَهُ إِلَّا بِإِذْنِهِ ۚ يَعْلَمُ مَا بَيْنَ أَيْدِيهِمْ وَمَا خَلْفَهُمْ ۖ وَلَا يُحِيطُونَ بِشَيْءٍ مِّنْ عِلْمِهِ إِلَّا بِمَا شَاءَ ۚ وَسِعَ كُرْسِيُّهُ السَّمَاوَاتِ وَالْأَرْضَ ۖ وَلَا يَئُودُهُ حِفْظُهُمَا ۚ وَهُوَ الْعَلِيُّ الْعَظِيمُ",
+            "Recite Ayat al-Kursi (Surah Al-Baqarah 2:255)",
+            "الدليل: قال النبي ﷺ: «إذا أويت إلى فراشك فاقرأ آية الكرسي؛ فإنه لن يزال عليك من الله حافظ ولا يقربك شيطان حتى تصبح» (رواه البخاري).",
+            "Evidence: A guardian from Allah will remain over you and no devil will come near you until morning (Sahih Bukhari).",
+            1
+        ),
+        TasbeehItem(
+            "آخر آيتين من سورة البقرة", "Last 2 Verses of Al-Baqarah",
+            "آمَنَ الرَّسُولُ بِمَا أُنزِلَ إِلَيْهِ مِن رَّبِّهِ وَالْمُؤْمِنُونَ ۚ كُلٌّ آمَنَ بِاللَّهِ وَمَلَائِكَتِهِ وَكُتُبِهِ وَرُسُلِهِ ... (الآيتان 285-286 من سورة البقرة)",
+            "Recite the last two verses of Surah Al-Baqarah (2:285-286)",
+            "الدليل: قال النبي ﷺ: «من قرأ بالآيتين من آخر سورة البقرة في ليلة كفتاه» (متفق عليه — أي كفتاه من كل شر وآفة وشيطان).",
+            "Evidence: Whoever recites them at night, they will suffice him against all harm (Bukhari & Muslim).",
+            1
+        ),
+        TasbeehItem(
+            "النفث بالمعوذات في الكفين", "Al-Ikhlas, Al-Falaq & An-Nas",
+            "يجمع كفيه ثم ينفث فيهما ويقرأ: ﴿قُلْ هُوَ اللَّهُ أَحَدٌ﴾ و﴿قُلْ أَعُوذُ بِرَبِّ الْفَلَقِ﴾ و﴿قُلْ أَعُوذُ بِرَبِّ النَّاسِ﴾ ثم يمسح بهما ما استطاع من جسده",
+            "Cup hands, blow gently, recite Al-Ikhlas, Al-Falaq & An-Nas, and wipe over the body (3x)",
+            "الدليل: كان النبي ﷺ يفعل ذلك كل ليلة عند النوم ثلاث مرات لحفظ الجسد من الشرور والعين والشيطان (رواه البخاري).",
+            "Evidence: Sunnah of the Prophet ﷺ every night for complete protection (Sahih Bukhari).",
+            3
+        ),
+        TasbeehItem(
+            "باسمك ربي وضعت جنبي", "Bismika Rabbi Wada'tu Janbi",
+            "بِاسْمِكَ رَبِّي وَضَعْتُ جَنْبِي، وَبِكَ أَرْفَعُهُ، فَإِنْ أَمْسَكْتَ نَفْسِي فَارْحَمْهَا، وَإِنْ أَرْسَلْتَهَا فَاحْفَظْهَا بِمَا تَحْفَظُ بِهِ عِبَادَكَ الصَّالِحِينَ",
+            "In Your name my Lord I lie down, and in Your name I rise...",
+            "الدليل: أوصى به النبي ﷺ عند الاضطجاع للنوم (متفق عليه).",
+            "Evidence: Recommended by the Prophet ﷺ when lying down (Bukhari & Muslim).",
+            1
+        ),
+        TasbeehItem(
+            "تسبيح النوم (سبحان الله 33)", "SubhanAllah (33x)",
+            "سُبْحَانَ اللَّهِ",
+            "SubhanAllah (33 times)",
+            "الدليل: علّمه النبي ﷺ لفاطمة وعلي رضي الله عنهما عند النوم وقال: «ذلك خير لكما من خادم» (متفق عليه).",
+            "Evidence: Better for you than a servant — gives strength and barakah (Bukhari & Muslim).",
+            33
+        ),
+        TasbeehItem(
+            "تحميد النوم (الحمد لله 33)", "Alhamdulillah (33x)",
+            "الْحَمْدُ لِلَّهِ",
+            "Alhamdulillah (33 times)",
+            "الدليل: من تسبيح النوم النبوي الذي يبعث النشاط والبركة (متفق عليه).",
+            "Evidence: Part of the Prophetic bedtime Tasbeeh (Bukhari & Muslim).",
+            33
+        ),
+        TasbeehItem(
+            "تكبير النوم (الله أكبر 34)", "Allahu Akbar (34x)",
+            "اللَّهُ أَكْبَرُ",
+            "Allahu Akbar (34 times)",
+            "الدليل: تمام المائة قبل النوم كما علّم النبي ﷺ ابنته فاطمة رضي الله عنها (متفق عليه).",
+            "Evidence: Completes 100 before sleep (Bukhari & Muslim).",
+            34
+        ),
+        TasbeehItem(
+            "باسمك اللهم أموت وأحيا", "Bismika Allahumma Amutu wa Ahya",
+            "بِاسْمِكَ اللَّهُمَّ أَمُوتُ وَأَحْيَا",
+            "In Your name O Allah, I die and I live.",
+            "الدليل: كان النبي ﷺ إذا أخذ مضجعه قالها (رواه البخاري).",
+            "Evidence: The Prophet's ﷺ words when going to sleep (Sahih Bukhari).",
+            1
+        )
+    )
+
+    /**
+     * Authentic Waking Up Adhkar (أذكار الاستيقاظ من النوم)
+     */
+    val wakingAdhkar: List<TasbeehItem> = listOf(
+        TasbeehItem(
+            "الحمد لله الذي أحيانا", "Praise Upon Waking",
+            "الْحَمْدُ لِلَّهِ الَّذِي أَحْيَانَا بَعْدَ مَا أَمَاتَنَا وَإِلَيْهِ النُّشُورُ",
+            "All praise is for Allah who gave us life after having taken it from us and unto Him is the resurrection.",
+            "الدليل: كان النبي ﷺ يقولها فور استيقاظه من النوم (رواه البخاري).",
+            "Evidence: Recited by the Prophet ﷺ immediately upon waking (Sahih Bukhari).",
+            1
+        ),
+        TasbeehItem(
+            "الحمد لله الذي عافاني في جسدي", "Gratitude for Health",
+            "الْحَمْدُ لِلَّهِ الَّذِي عَافَانِي فِي جَسَدِي، وَرَدَّ عَلَيَّ رُوحِي، وَأَذِنَ لِي بِذِكْرِهِ",
+            "All praise is for Allah who restored my health, returned my soul, and permitted me to remember Him.",
+            "الدليل: رواه الترمذي وحسنه الألباني.",
+            "Evidence: Narrated by At-Tirmidhi.",
+            1
+        ),
+        TasbeehItem(
+            "دعاء الاستيقاظ ليلاً (إجابة الدعاء)", "Waking at Night Dua",
+            "لَا إِلَهَ إِلَّا اللَّهُ وَحْدَهُ لَا شَرِيكَ لَهُ، لَهُ الْمُلْكُ وَلَهُ الْحَمْدُ وَهُوَ عَلَى كُلِّ شَيْءٍ قَدِيرٌ، الْحَمْدُ لِلَّهِ، وَسُبْحَانَ اللَّهِ، وَلَا إِلَهَ إِلَّا اللَّهُ، وَاللَّهُ أَكْبَرُ، وَلَا حَوْلَ وَلَا قُوَّةَ إِلَّا بِاللَّهِ، اللَّهُمَّ اغْفِرْ لِي",
+            "None is worthy of worship except Allah alone... O Allah forgive me.",
+            "الدليل: من تعارّ من الليل فقالها ثم دعا استُجيب له، فإن توضأ وصلى قُبلت صلاته (رواه البخاري).",
+            "Evidence: Whoever says this upon waking at night and supplicates will be answered (Sahih Bukhari).",
+            1
+        )
+    )
 }

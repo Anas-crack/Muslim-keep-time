@@ -16,6 +16,15 @@ data class AppRule(
     var reopenAttempts: Int = 0
 )
 
+data class ScheduleItem(
+    val id: String,
+    val title: String,
+    val hour: Int,
+    val minute: Int,
+    val enabled: Boolean = true,
+    val doneDate: String = ""
+)
+
 class PrefsStore(context: Context) {
     private val prefs = context.getSharedPreferences("mtk_prefs", Context.MODE_PRIVATE)
 
@@ -177,6 +186,57 @@ class PrefsStore(context: Context) {
     var bedtimeEnabled: Boolean
         get() = prefs.getBoolean("bedtime_enabled", false)
         set(v) = prefs.edit().putBoolean("bedtime_enabled", v).apply()
+
+    var bedtimeStartMinute: Int
+        get() = prefs.getInt("bedtime_start_min", 0)
+        set(v) = prefs.edit().putInt("bedtime_start_min", v).apply()
+
+    var sleepAdhkarReminderEnabled: Boolean
+        get() = prefs.getBoolean("sleep_adhkar_rem_enabled", true)
+        set(v) = prefs.edit().putBoolean("sleep_adhkar_rem_enabled", v).apply()
+
+    var lastMushafPage: Int
+        get() = prefs.getInt("last_mushaf_page", 1)
+        set(v) = prefs.edit().putInt("last_mushaf_page", v.coerceIn(1, 604)).apply()
+
+    var mushafNightMode: Boolean
+        get() = prefs.getBoolean("mushaf_night_mode", false)
+        set(v) = prefs.edit().putBoolean("mushaf_night_mode", v).apply()
+
+    fun getScheduleItems(): MutableList<ScheduleItem> {
+        val raw = prefs.getString("daily_schedule_json", "[]") ?: "[]"
+        val arr = JSONArray(raw)
+        val list = mutableListOf<ScheduleItem>()
+        for (i in 0 until arr.length()) {
+            val o = arr.getJSONObject(i)
+            list.add(
+                ScheduleItem(
+                    id = o.optString("id", "${i}"),
+                    title = o.optString("title", ""),
+                    hour = o.optInt("h", 16),
+                    minute = o.optInt("m", 0),
+                    enabled = o.optBoolean("en", true),
+                    doneDate = o.optString("done", "")
+                )
+            )
+        }
+        return list.sortedBy { it.hour * 60 + it.minute }.toMutableList()
+    }
+
+    fun saveScheduleItems(items: List<ScheduleItem>) {
+        val arr = JSONArray()
+        for (it in items) {
+            arr.put(JSONObject().apply {
+                put("id", it.id)
+                put("title", it.title)
+                put("h", it.hour)
+                put("m", it.minute)
+                put("en", it.enabled)
+                put("done", it.doneDate)
+            })
+        }
+        prefs.edit().putString("daily_schedule_json", arr.toString()).apply()
+    }
 
     var bedtimeStartHour: Int
         get() = prefs.getInt("bedtime_start_hour", 23)
