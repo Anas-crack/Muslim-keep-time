@@ -338,8 +338,8 @@ class GuardianService : Service() {
             return
         }
 
-        // 2. Persistent Daily Phone Lock (Allows Emergency Phone Calls Only)
-        if (store.isPhoneLockedToday) {
+        // 2. Persistent Daily Phone Lock (only when Daily Timer is enabled)
+        if (store.dailyTimerEnabled && store.isPhoneLockedToday) {
             if (isAllowedCallPackage(fg)) {
                 overlay.hide()
             } else {
@@ -380,18 +380,20 @@ class GuardianService : Service() {
             return
         }
 
-        // 5. Daily Phone Limit Counter (counts every 1 second while screen is ON)
-        val used = store.phoneSecondsUsedToday + 1
-        store.phoneSecondsUsedToday = used
-        val remSec = (store.dailyPhoneLimitMinutes * 60) - used
-        if (remSec in 301..600) sendPreAlert("pc_10", if (store.isArabic) "متبقي 10 دقائق على انتهاء وقت الهاتف اليوم! احفظ عملك." else "10 minutes left on phone today!")
-        if (remSec in 1..300) sendPreAlert("pc_5", if (store.isArabic) "متبقي 5 دقائق فقط على انتهاء وقت الهاتف اليوم!" else "Only 5 minutes left on phone today!")
-        if (used >= store.dailyPhoneLimitMinutes * 60) {
-            store.isPhoneLockedToday = true
-            store.lockReason = if (store.isArabic) "انتهى الحد اليومي المسموح لاستخدام الهاتف." else "Daily phone screen time limit has been reached."
-            enforceLockOverlay("PHONE_LOCK", store.lockReason, 0L)
-            tickCounter++
-            return
+        // 5. Daily Phone Limit Counter (optional — only runs if user enabled Daily Timer!)
+        if (store.dailyTimerEnabled) {
+            val used = store.phoneSecondsUsedToday + 1
+            store.phoneSecondsUsedToday = used
+            val remSec = (store.dailyPhoneLimitMinutes * 60) - used
+            if (remSec in 301..600) sendPreAlert("pc_10", if (store.isArabic) "متبقي 10 دقائق على انتهاء وقت الهاتف اليوم! احفظ عملك." else "10 minutes left on phone today!")
+            if (remSec in 1..300) sendPreAlert("pc_5", if (store.isArabic) "متبقي 5 دقائق فقط على انتهاء وقت الهاتف اليوم!" else "Only 5 minutes left on phone today!")
+            if (used >= store.dailyPhoneLimitMinutes * 60) {
+                store.isPhoneLockedToday = true
+                store.lockReason = if (store.isArabic) "انتهى الحد اليومي المسموح لاستخدام الهاتف." else "Daily phone screen time limit has been reached."
+                enforceLockOverlay("PHONE_LOCK", store.lockReason, 0L)
+                tickCounter++
+                return
+            }
         }
 
         // 6. Per-App Limits & Reopen Escalation (every 2 seconds)

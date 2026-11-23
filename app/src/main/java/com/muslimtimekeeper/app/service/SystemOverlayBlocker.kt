@@ -197,60 +197,6 @@ class SystemOverlayBlocker(
             }
             root.addView(waveView)
 
-            // Realistic Falling-Bead Tasbeeh Card
-            val phrases = if (ar) AdhkarData.tasbeehPhrasesAr else AdhkarData.tasbeehPhrasesEn
-            var phraseIdx = 0
-            var tasbeehCount = 0
-
-            val tasbeehCard = LinearLayout(context).apply {
-                orientation = LinearLayout.VERTICAL
-                gravity = Gravity.CENTER
-                background = glassCardBg("#55102A3E", "#5538BDF8", 28f)
-                setPadding(24, 18, 24, 18)
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                    topMargin = 8; bottomMargin = 12
-                }
-            }
-            val phraseTv = TextView(context).apply {
-                text = phrases[0]
-                textSize = 18f
-                setTypeface(null, Typeface.BOLD)
-                setTextColor(Color.WHITE)
-                gravity = Gravity.CENTER
-            }
-            val countTv = TextView(context).apply {
-                text = if (ar) "العدد: 0  (اضغط على حبات السبحة)" else "Count: 0  (Tap the beads)"
-                textSize = 14f
-                setTextColor(Color.parseColor("#F59E0B"))
-                gravity = Gravity.CENTER
-                setPadding(0, 4, 0, 6)
-            }
-            val beadView = BeadTasbeehView(context).apply {
-                layoutParams = LinearLayout.LayoutParams(200, 260)
-                onBeadTapped = {
-                    tasbeehCount++
-                    countTv.text = if (ar) "العدد: $tasbeehCount" else "Count: $tasbeehCount"
-                }
-            }
-            val btnNextPhrase = Button(context).apply {
-                text = if (ar) "تغيير الذكر ↻" else "Next Dhikr ↻"
-                setBackgroundColor(Color.parseColor("#33FFFFFF"))
-                setTextColor(Color.WHITE)
-                isAllCaps = false
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = 8 }
-                setOnClickListener {
-                    phraseIdx = (phraseIdx + 1) % phrases.size
-                    tasbeehCount = 0
-                    phraseTv.text = phrases[phraseIdx]
-                    countTv.text = if (ar) "العدد: 0" else "Count: 0"
-                }
-            }
-            tasbeehCard.addView(phraseTv)
-            tasbeehCard.addView(countTv)
-            tasbeehCard.addView(beadView)
-            tasbeehCard.addView(btnNextPhrase)
-            root.addView(tasbeehCard)
-
             val btnMute = Button(context).apply {
                 text = Strings.get(ar, "mute_adhan")
                 setBackgroundColor(Color.parseColor("#44334155"))
@@ -339,7 +285,8 @@ class SystemOverlayBlocker(
 
             // Realistic Falling-Bead Tasbeeh for counting Adhkar!
             val beadView = BeadTasbeehView(context).apply {
-                layoutParams = LinearLayout.LayoutParams(200, 250)
+                beadTheme = store.selectedBeadTheme
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 240)
             }
 
             fun advanceDhikr() {

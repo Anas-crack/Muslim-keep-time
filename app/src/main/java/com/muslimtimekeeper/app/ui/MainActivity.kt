@@ -18,6 +18,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import android.speech.tts.TextToSpeech
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
@@ -29,6 +30,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.muslimtimekeeper.app.R
+import com.muslimtimekeeper.app.core.AdhkarData
 import com.muslimtimekeeper.app.core.AppRule
 import com.muslimtimekeeper.app.core.PrayerCalculator
 import com.muslimtimekeeper.app.core.PrefsStore
@@ -48,6 +50,9 @@ class MainActivity : AppCompatActivity() {
     private var currentTab = 0
     private var testPlayer: MediaPlayer? = null
     private var prayerWaveView: AdhanWaveView? = null
+    private var tasbeehTts: TextToSpeech? = null
+    private var tasbeehSessionCount = 0
+    private var showFadlInTasbeeh = true
     private lateinit var contentContainer: FrameLayout
     private lateinit var navButtons: List<TextView>
     private lateinit var lockStatusChip: TextView
@@ -209,10 +214,10 @@ class MainActivity : AppCompatActivity() {
         val navBar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL; setBackgroundColor(bgBar()); setPadding(dp(8), dp(8), dp(8), dp(10))
         }
-        val labels = listOf(s("tab_home"), s("tab_apps"), s("tab_prayer"), s("tab_data"), s("tab_safety"))
+        val labels = listOf(s("tab_home"), s("tab_apps"), s("tab_prayer"), s("tab_tasbeeh"), s("tab_data"), s("tab_safety"))
         navButtons = labels.mapIndexed { idx, txt ->
             TextView(this).apply {
-                text = txt; gravity = Gravity.CENTER; textSize = 11.5f; setTypeface(null, Typeface.BOLD); setPadding(dp(4), dp(8), dp(4), dp(8))
+                text = txt; gravity = Gravity.CENTER; textSize = 10.5f; setTypeface(null, Typeface.BOLD); setPadding(dp(2), dp(8), dp(2), dp(8))
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(4); marginEnd = dp(4) }
                 setOnClickListener { renderTab(idx) }
             }.also { navBar.addView(it) }
@@ -237,7 +242,8 @@ class MainActivity : AppCompatActivity() {
             0 -> buildHomeTab()
             1 -> buildAppsTab()
             2 -> buildPrayerTab()
-            3 -> buildDataTab()
+            3 -> buildTasbeehTab()
+            4 -> buildDataTab()
             else -> buildSafetyTab()
         }
         contentContainer.removeAllViews()
@@ -247,6 +253,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateLiveTimerUi() {
+        if (!store.dailyTimerEnabled) {
+            liveTimerTv?.text = if (store.isArabic) "مغلق" else "OFF"
+            livePctTv?.text = if (store.isArabic) "مغلق" else "OFF"
+            liveBar?.progress = 0
+            return
+        }
         val totalSec = maxOf(1, store.dailyPhoneLimitMinutes * 60)
         val remSec = maxOf(0, totalSec - store.phoneSecondsUsedToday)
         liveTimerTv?.text = String.format("%02d:%02d:%02d", remSec / 3600, (remSec % 3600) / 60, remSec % 60)
@@ -326,6 +338,23 @@ class MainActivity : AppCompatActivity() {
 
         // 2. Daily Screen Time Progress Card (Clean modern style)
         val progCard = makeCard()
+        val swDailyTimer = Switch(this).apply {
+            text = if (store.isArabic) "⏱️ تفعيل مؤقت الوقت اليومي (اختياري للكبار)" else "⏱️ Enable Daily Phone Timer (Optional)"
+            isChecked = store.dailyTimerEnabled
+            setTextColor(textPrimary())
+            setPadding(0, 0, 0, dp(8))
+            setOnCheckedChangeListener { _, checked ->
+                requireParentPin {
+                    store.dailyTimerEnabled = checked
+                    if (!checked) {
+                        store.isPhoneLockedToday = false
+                        store.lockReason = ""
+                    }
+                    renderTab(0)
+                }
+            }
+        }
+        progCard.addView(swDailyTimer)
         val topRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
         topRow.addView(TextView(this).apply {
             text = "⏱️  ${s("daily_limit")} (${store.dailyPhoneLimitMinutes} ${s("minutes")})"
@@ -708,7 +737,185 @@ class MainActivity : AppCompatActivity() {
         return scroll
     }
 
-    // --- Tab 3: Device Internet Data Quota (GB Ring, Consumed, Remaining, %, Auto Cut-off) ---
+    private fun speakTasbeeh(text: String) {
+        try {
+            if (tasbeehTts == null) {
+                tasbeehTts = TextToSpeech(this) { status ->
+                    if (status == TextToSpeech.SUCCESS) {
+                        val loc = if (store.isArabic) Locale("ar", "EG") else Locale.US
+                        val res = tasbeehTts?.setLanguage(loc)
+                        if (store.isArabic && (res == TextToSpeech.LANG_MISSING_DATA || res == TextToSpeech.LANG_NOT_SUPPORTED)) {
+                            tasbeehTts?.setLanguage(Locale("ar"))
+                        }
+                        tasbeehTts?.setSpeechRate(0.90f)
+                        tasbeehTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tasbeeh_tts")
+                    }
+                }
+            } else {
+                tasbeehTts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, "tasbeeh_tts")
+            }
+        } catch (_: Exception) { }
+    }
+
+    // --- Tab 3: Dedicated Tasbeeh & Adhkar Tab (Curved Pearl Bead String like Reference Photo) ---
+    private fun buildTasbeehTab(): View {
+        val ar = store.isArabic
+        val scroll = ScrollView(this)
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(14), dp(14), dp(24)) }
+
+        val list = AdhkarData.tasbeehLibrary
+        val selIdx = store.selectedTasbeehIndex.coerceIn(0, list.lastIndex)
+        val item = list[selIdx]
+
+        // 1. Dhikr Picker + Bead Theme Selector Card
+        val topCard = makeCard(if (ar) "📿 السبحة الإلكترونية والأذكار" else "📿 Electronic Tasbeeh & Adhkar")
+        topCard.addView(makeBtn(if (ar) "📖 اختر الذكر / التسبيح (${list.size} ذكراً) ▼" else "📖 Choose Dhikr (${list.size} items) ▼", "#0284C7", "#0369A1") {
+            val titles = list.map { if (ar) "${it.titleAr}  (${it.target})" else "${it.titleEn}  (${it.target})" }.toTypedArray()
+            AlertDialog.Builder(this)
+                .setTitle(if (ar) "اختر الذكر أو التسبيح" else "Select Dhikr / Tasbeeh")
+                .setItems(titles) { _, which ->
+                    store.selectedTasbeehIndex = which
+                    tasbeehSessionCount = 0
+                    renderTab(3)
+                }
+                .setNegativeButton(s("cancel"), null)
+                .show()
+        })
+
+        // Bead color theme pills
+        val themeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, dp(10), 0, dp(2))
+        }
+        val themeLabels = if (ar) listOf("⚪ لؤلؤي", "🔵 سماوي", "🟢 زمردي", "🟡 ذهبي") else listOf("⚪ Pearl", "🔵 Blue", "🟢 Green", "🟡 Gold")
+        themeLabels.forEachIndexed { tIdx, lbl ->
+            val sel = (store.selectedBeadTheme == tIdx)
+            val pill = Button(this).apply {
+                text = lbl
+                isAllCaps = false; textSize = 11.5f
+                background = if (sel) gradientBg("#0284C7", "#0369A1", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                setTextColor(if (sel) Color.WHITE else Color.parseColor(btnNeutralFg()))
+                layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
+                setOnClickListener { store.selectedBeadTheme = tIdx; renderTab(3) }
+            }
+            themeRow.addView(pill)
+        }
+        topCard.addView(themeRow)
+        col.addView(topCard)
+
+        // 2. Dhikr Text + Expandable Virtue (فضل الذكر) Card
+        val dhikrCard = makeCard()
+        dhikrCard.addView(TextView(this).apply {
+            text = if (ar) item.textAr else item.textEn
+            textSize = 18.5f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(textPrimary())
+            gravity = Gravity.CENTER
+            setPadding(dp(4), dp(4), dp(4), dp(10))
+        })
+
+        val fadlTv = TextView(this).apply {
+            text = if (ar) item.fadlAr else item.fadlEn
+            textSize = 13f
+            setTextColor(accentCol())
+            gravity = Gravity.CENTER
+            visibility = if (showFadlInTasbeeh) View.VISIBLE else View.GONE
+            setPadding(dp(6), dp(8), dp(6), dp(4))
+        }
+        val fadlToggle = TextView(this).apply {
+            text = if (ar) (if (showFadlInTasbeeh) "فضل الذكر ▲" else "فضل الذكر ▼") else (if (showFadlInTasbeeh) "Virtue ▲" else "Virtue ▼")
+            textSize = 12f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(accentCol())
+            gravity = Gravity.CENTER
+            background = gradientBg(btnNeutralBg(), btnNeutralBg(), 12)
+            setPadding(dp(14), dp(5), dp(14), dp(5))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                gravity = Gravity.CENTER_HORIZONTAL
+            }
+            setOnClickListener {
+                showFadlInTasbeeh = !showFadlInTasbeeh
+                fadlTv.visibility = if (showFadlInTasbeeh) View.VISIBLE else View.GONE
+                text = if (ar) (if (showFadlInTasbeeh) "فضل الذكر ▲" else "فضل الذكر ▼") else (if (showFadlInTasbeeh) "Virtue ▲" else "Virtue ▼")
+            }
+        }
+        dhikrCard.addView(fadlToggle)
+        dhikrCard.addView(fadlTv)
+        col.addView(dhikrCard)
+
+        // 3. Interactive Diagonal Pearl Bead String Card
+        val beadCard = makeCard()
+        val countTv = TextView(this).apply {
+            text = "$tasbeehSessionCount / ${item.target}"
+            textSize = 36f
+            setTypeface(null, Typeface.BOLD)
+            setTextColor(accentCol())
+            gravity = Gravity.CENTER
+        }
+        val totalTv = TextView(this).apply {
+            text = if (ar) "إجمالي تسبيحاتك: ${store.totalTasbeehCount}  •  اضغط على السبحة لتنزيل حبة" else "Total Tasbeeh: ${store.totalTasbeehCount}  •  Tap beads to slide one"
+            textSize = 11.5f
+            setTextColor(textMuted())
+            gravity = Gravity.CENTER
+            setPadding(0, dp(2), 0, dp(6))
+        }
+
+        val beadView = BeadTasbeehView(this).apply {
+            beadTheme = store.selectedBeadTheme
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(175))
+            onBeadTapped = {
+                tasbeehSessionCount++
+                store.totalTasbeehCount = store.totalTasbeehCount + 1
+                countTv.text = "$tasbeehSessionCount / ${item.target}"
+                totalTv.text = if (ar) "إجمالي تسبيحاتك: ${store.totalTasbeehCount}" else "Total Tasbeeh: ${store.totalTasbeehCount}"
+                if (tasbeehSessionCount == item.target) {
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (ar) "ما شاء الله! أتممت ${item.target} تسبيحة" else "MashaAllah! Completed ${item.target}",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }
+
+        val actionRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, dp(2))
+        }
+        val btnReset = Button(this).apply {
+            text = if (ar) "↻ إعادة" else "↻ Reset"
+            isAllCaps = false; textSize = 13f
+            background = gradientBg(btnNeutralBg(), btnNeutralBg(), 12)
+            setTextColor(Color.parseColor(btnNeutralFg()))
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(8) }
+            setOnClickListener {
+                tasbeehSessionCount = 0
+                countTv.text = "0 / ${item.target}"
+            }
+        }
+        val btnListen = Button(this).apply {
+            text = if (ar) "🔊 استماع للذكر" else "🔊 Listen"
+            isAllCaps = false; textSize = 13f
+            background = gradientBg("#0284C7", "#0369A1", 12)
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
+            setOnClickListener { speakTasbeeh(if (ar) item.textAr else item.textEn) }
+        }
+        actionRow.addView(btnReset)
+        actionRow.addView(btnListen)
+
+        beadCard.addView(beadView)
+        beadCard.addView(countTv)
+        beadCard.addView(totalTv)
+        beadCard.addView(actionRow)
+        col.addView(beadCard)
+
+        scroll.addView(col)
+        return scroll
+    }
+
+    // --- Tab 4: Device Internet Data Quota (GB Ring, Consumed, Remaining, %, Auto Cut-off) ---
     private fun formatDataMb(bytes: Long): String {
         val mb = bytes / (1024.0 * 1024.0)
         return if (mb >= 1024.0) String.format(Locale.US, "%.2f GB", mb / 1024.0)
@@ -786,7 +993,7 @@ class MainActivity : AppCompatActivity() {
                         store.isInternetBlockedByQuota = false
                         startService(Intent(this@MainActivity, SafeDnsVpnService::class.java).apply { action = if (store.webSafetyEnabled) "SAFE_DNS" else "STOP_VPN" })
                     }
-                    renderTab(3)
+                    renderTab(4)
                 }
             }
         }
@@ -810,7 +1017,7 @@ class MainActivity : AppCompatActivity() {
                             store.isInternetBlockedByQuota = false
                             startService(Intent(this@MainActivity, SafeDnsVpnService::class.java).apply { action = if (store.webSafetyEnabled) "SAFE_DNS" else "STOP_VPN" })
                         }
-                        renderTab(3)
+                        renderTab(4)
                     }
                 }
             }
@@ -824,7 +1031,7 @@ class MainActivity : AppCompatActivity() {
                 store.isInternetBlockedByQuota = false
                 startService(Intent(this, SafeDnsVpnService::class.java).apply { action = if (store.webSafetyEnabled) "SAFE_DNS" else "STOP_VPN" })
                 Toast.makeText(this, if (store.isArabic) "تم تصفير استهلاك الإنترنت!" else "Data usage reset!", Toast.LENGTH_SHORT).show()
-                renderTab(3)
+                renderTab(4)
             }
         })
         col.addView(ctrlCard)
@@ -844,11 +1051,11 @@ class MainActivity : AppCompatActivity() {
             requireParentPin {
                 val prep = VpnService.prepare(this)
                 if (prep != null) vpnLauncher.launch(prep)
-                else { startService(Intent(this, SafeDnsVpnService::class.java)); store.webSafetyEnabled = true; renderTab(4) }
+                else { startService(Intent(this, SafeDnsVpnService::class.java)); store.webSafetyEnabled = true; renderTab(5) }
             }
         })
         webCard.addView(makeBtn(s("disable_dns"), btnNeutralBg(), btnNeutralBg(), btnNeutralFg()) {
-            requireParentPin { startService(Intent(this, SafeDnsVpnService::class.java).apply { action = "STOP_VPN" }); store.webSafetyEnabled = false; renderTab(4) }
+            requireParentPin { startService(Intent(this, SafeDnsVpnService::class.java).apply { action = "STOP_VPN" }); store.webSafetyEnabled = false; renderTab(5) }
         })
         col.addView(webCard)
 
@@ -908,6 +1115,6 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        uiHandler.removeCallbacks(liveClockRunnable); testPlayer?.release(); super.onDestroy()
+        uiHandler.removeCallbacks(liveClockRunnable); testPlayer?.release(); try { tasbeehTts?.stop(); tasbeehTts?.shutdown() } catch (_: Exception) { }; super.onDestroy()
     }
 }

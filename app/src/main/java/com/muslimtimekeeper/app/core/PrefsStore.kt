@@ -106,6 +106,22 @@ class PrefsStore(context: Context) {
         get() = prefs.getBoolean("is_arabic", true)
         set(v) = prefs.edit().putBoolean("is_arabic", v).apply()
 
+    var dailyTimerEnabled: Boolean
+        get() = prefs.getBoolean("daily_timer_enabled", true)
+        set(v) = prefs.edit().putBoolean("daily_timer_enabled", v).apply()
+
+    var totalTasbeehCount: Int
+        get() = prefs.getInt("total_tasbeeh_count", 0)
+        set(v) = prefs.edit().putInt("total_tasbeeh_count", v).apply()
+
+    var selectedBeadTheme: Int
+        get() = prefs.getInt("selected_bead_theme", 0)
+        set(v) = prefs.edit().putInt("selected_bead_theme", v).apply()
+
+    var selectedTasbeehIndex: Int
+        get() = prefs.getInt("selected_tasbeeh_idx", 0)
+        set(v) = prefs.edit().putInt("selected_tasbeeh_idx", v).apply()
+
     var dailyPhoneLimitMinutes: Int
         get() = prefs.getInt("daily_phone_limit_min", 180)
         set(v) = prefs.edit().putInt("daily_phone_limit_min", v).apply()

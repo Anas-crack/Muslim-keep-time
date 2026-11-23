@@ -7,6 +7,7 @@ import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.animation.DecelerateInterpolator
 import android.view.animation.LinearInterpolator
+import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.sin
 
@@ -27,7 +28,7 @@ class GlowingMandalaRingView(context: Context) : View(context) {
     private val glowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 36f
-        color = Color.parseColor("#2A10B981")
+        color = Color.parseColor("#2A38BDF8")
         strokeCap = Paint.Cap.ROUND
     }
 
@@ -40,7 +41,7 @@ class GlowingMandalaRingView(context: Context) : View(context) {
     private val mandalaPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 2.5f
-        color = Color.parseColor("#3810B981")
+        color = Color.parseColor("#3838BDF8")
     }
 
     private val rotAnimator = ValueAnimator.ofFloat(0f, 360f).apply {
@@ -161,7 +162,7 @@ class AdhanWaveView(context: Context) : View(context) {
         val step = width.toFloat() / (bars + 1)
         val midY = height / 2f
         for (i in 1..bars) {
-            val distCenter = 1f - (kotlin.math.abs(i - bars / 2f) / (bars / 2f))
+            val distCenter = 1f - (abs(i - bars / 2f) / (bars / 2f))
             val factor = if (isPlayingWave) {
                 val w1 = sin((phase * 1.4f + i * 0.65f).toDouble()).toFloat()
                 val w2 = sin((phase * 2.3f - i * 0.42f).toDouble()).toFloat()
@@ -182,36 +183,50 @@ class AdhanWaveView(context: Context) : View(context) {
 }
 
 /**
- * Interactive Realistic 3D Bead Tasbeeh (سبحة حبيبات حقيقية).
- * Every tap slides a glowing bead smoothly down the prayer string with haptic feedback!
+ * Realistic Curved-Arc Diagonal Pearl Bead Tasbeeh (سبحة حبيبات حقيقية على قوس مائل).
+ * Matches user's reference screenshot: distinct glossy 3D pearls along a curved cord
+ * sweeping from upper-left to lower-right with a clear gap where ONE bead slides down per tap!
  */
 class BeadTasbeehView(context: Context) : View(context) {
-    private var dropAnimFraction: Float = 1f
-    private var totalDrops: Int = 0
+    private var slideFraction: Float = 1f
+    private var isAnimating: Boolean = false
+    var beadTheme: Int = 0 // 0=Pearl White, 1=Sapphire Blue, 2=Emerald Green, 3=Royal Gold
+        set(value) {
+            field = value
+            invalidate()
+        }
     var onBeadTapped: (() -> Unit)? = null
 
-    private val stringPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val cordPath = Path()
+    private val cordPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 6f
-        color = Color.parseColor("#94A3B8")
+        strokeWidth = 7f
+        color = Color.parseColor("#CC1E293B")
+        strokeCap = Paint.Cap.ROUND
     }
-
+    private val cordHighlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = 2f
+        color = Color.parseColor("#55CBD5E1")
+    }
+    private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.parseColor("#38000000")
+    }
     private val beadPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
-
-    private val highlightPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val glossPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.parseColor("#88FFFFFF")
+        color = Color.parseColor("#B8FFFFFF")
     }
-
-    private val ringAccentPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val rimPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = 3f
-        color = Color.parseColor("#88F59E0B")
+        strokeWidth = 2f
+        color = Color.parseColor("#55FFFFFF")
     }
 
-    private var dropAnimator: ValueAnimator? = null
+    private var animator: ValueAnimator? = null
 
     init {
         isClickable = true
@@ -222,66 +237,106 @@ class BeadTasbeehView(context: Context) : View(context) {
     }
 
     fun dropBead() {
-        totalDrops++
         try { performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP) } catch (_: Exception) { }
-        dropAnimator?.cancel()
-        dropAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 230L
+        animator?.cancel()
+        isAnimating = true
+        animator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 250L
             interpolator = DecelerateInterpolator()
             addUpdateListener {
-                dropAnimFraction = it.animatedValue as Float
+                slideFraction = it.animatedValue as Float
                 invalidate()
             }
             start()
         }
     }
 
-    private fun drawBead(canvas: Canvas, cx: Float, cy: Float, radius: Float, isGold: Boolean) {
-        val c1 = if (isGold) Color.parseColor("#FDE68A") else Color.parseColor("#7DD3FC")
-        val c2 = if (isGold) Color.parseColor("#D97706") else Color.parseColor("#0284C7")
-        val c3 = if (isGold) Color.parseColor("#78350F") else Color.parseColor("#0C4A6E")
+    private fun quadPoint(t: Float, x0: Float, y0: Float, cx: Float, cy: Float, x1: Float, y1: Float): Pair<Float, Float> {
+        val u = 1f - t
+        val x = u * u * x0 + 2f * u * t * cx + t * t * x1
+        val y = u * u * y0 + 2f * u * t * cy + t * t * y1
+        return Pair(x, y)
+    }
+
+    private fun drawPearl(canvas: Canvas, x: Float, y: Float, r: Float) {
+        // Soft drop shadow
+        canvas.drawCircle(x + r * 0.10f, y + r * 0.18f, r * 0.98f, shadowPaint)
+
+        // 3D glossy radial shading
+        val colors = when (beadTheme) {
+            1 -> intArrayOf(Color.parseColor("#BAE6FD"), Color.parseColor("#0284C7"), Color.parseColor("#082F49"))
+            2 -> intArrayOf(Color.parseColor("#A7F3D0"), Color.parseColor("#059669"), Color.parseColor("#064E3B"))
+            3 -> intArrayOf(Color.parseColor("#FEF08A"), Color.parseColor("#D97706"), Color.parseColor("#78350F"))
+            else -> intArrayOf(Color.parseColor("#FFFFFF"), Color.parseColor("#E8E2D9"), Color.parseColor("#B6ACA0"))
+        }
         beadPaint.shader = RadialGradient(
-            cx - radius * 0.3f, cy - radius * 0.3f, radius * 1.25f,
-            intArrayOf(c1, c2, c3), floatArrayOf(0f, 0.55f, 1f), Shader.TileMode.CLAMP
+            x - r * 0.30f, y - r * 0.32f, r * 1.35f,
+            colors, floatArrayOf(0f, 0.58f, 1f), Shader.TileMode.CLAMP
         )
-        canvas.drawCircle(cx, cy, radius, beadPaint)
-        canvas.drawCircle(cx, cy, radius, ringAccentPaint)
-        canvas.drawCircle(cx - radius * 0.28f, cy - radius * 0.28f, radius * 0.22f, highlightPaint)
+        canvas.drawCircle(x, y, r, beadPaint)
+        canvas.drawCircle(x, y, r, rimPaint)
+        // Specular pearl shine
+        canvas.drawCircle(x - r * 0.32f, y - r * 0.32f, r * 0.24f, glossPaint)
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        val cx = width / 2f
+        val w = width.toFloat()
         val h = height.toFloat()
-        if (h < 40f) return
+        if (w < 60f || h < 60f) return
 
-        // Draw curved/vertical prayer cord
-        canvas.drawLine(cx, 12f, cx, h - 12f, stringPaint)
+        // Sweeping diagonal curve from upper-left to lower-right (like user's reference photo)
+        val x0 = -20f
+        val y0 = h * 0.24f
+        val cx = w * 0.48f
+        val cy = h * 0.62f
+        val x1 = w + 20f
+        val y1 = h * 0.80f
 
-        val beadR = min(width * 0.14f, h * 0.105f).coerceIn(14f, 28f)
-        val gap = beadR * 2.25f
+        cordPath.reset()
+        cordPath.moveTo(x0, y0)
+        cordPath.quadTo(cx, cy, x1, y1)
+        canvas.drawPath(cordPath, cordPaint)
+        canvas.drawPath(cordPath, cordHighlightPaint)
 
-        // Top stack of waiting beads (3 beads)
-        for (i in 0 until 3) {
-            val y = 24f + i * gap
-            drawBead(canvas, cx, y, beadR, (totalDrops + i) % 11 == 0)
+        val r = min(w * 0.068f, h * 0.22f).coerceIn(22f, 44f)
+
+        // Upper-left resting pearls (4 distinct pearls, spaced cleanly along t = 0.05 .. 0.44)
+        val leftSlots = floatArrayOf(0.05f, 0.18f, 0.31f, 0.44f)
+        // Lower-right counted pearls (2 distinct pearls along t = 0.82, 0.95)
+        val rightSlots = floatArrayOf(0.82f, 0.95f)
+
+        val shift = if (isAnimating) slideFraction else 1f
+        val step = 0.13f
+
+        // Incoming bead at far upper-left entering as queue shifts forward
+        val pIn = quadPoint(-0.08f + step * shift, x0, y0, cx, cy, x1, y1)
+        drawPearl(canvas, pIn.first, pIn.second, r)
+
+        // Left pearls shifting gently one slot forward
+        for (i in 0 until leftSlots.size - 1) {
+            val t = leftSlots[i] + step * shift
+            val pt = quadPoint(t, x0, y0, cx, cy, x1, y1)
+            drawPearl(canvas, pt.first, pt.second, r)
         }
 
-        // Falling animated bead sliding from upper zone to lower stack!
-        val startY = 24f + 2 * gap
-        val endY = h - 24f - 2 * gap
-        val animY = startY + (endY - startY) * dropAnimFraction
-        drawBead(canvas, cx, animY, beadR * 1.12f, totalDrops % 3 == 0)
+        // The active falling bead gliding across the open cord gap (0.44 -> 0.82)!
+        val activeT = 0.44f + (0.82f - 0.44f) * shift
+        val pActive = quadPoint(activeT, x0, y0, cx, cy, x1, y1)
+        drawPearl(canvas, pActive.first, pActive.second, r * 1.04f)
 
-        // Bottom stack of already counted beads (2 beads)
-        for (i in 0 until 2) {
-            val y = h - 24f - i * gap
-            drawBead(canvas, cx, y, beadR, (totalDrops + i + 1) % 11 == 0)
+        // Lower-right pearls shifting gently out to the right
+        for (tBase in rightSlots) {
+            val t = tBase + step * shift
+            if (t <= 1.08f) {
+                val pt = quadPoint(t, x0, y0, cx, cy, x1, y1)
+                drawPearl(canvas, pt.first, pt.second, r)
+            }
         }
     }
 
     override fun onDetachedFromWindow() {
-        dropAnimator?.cancel()
+        animator?.cancel()
         super.onDetachedFromWindow()
     }
 }
