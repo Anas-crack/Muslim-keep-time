@@ -197,6 +197,14 @@ object QuranData {
         return File(cacheDir(context), String.format("page%03d.txt", pageNum.coerceIn(1, 604)))
     }
 
+    private fun isValidPngBytes(bytes: ByteArray): Boolean {
+        return bytes.size > 2000 &&
+            bytes[0] == 0x89.toByte() &&
+            bytes[1] == 0x50.toByte() &&
+            bytes[2] == 0x4E.toByte() &&
+            bytes[3] == 0x47.toByte()
+    }
+
     /**
      * Instant 0ms offline lookup (no network!). Checks bundled assets, cached PNG, and cached Uthmani text.
      */
@@ -215,7 +223,7 @@ object QuranData {
             } catch (_: Exception) { }
         }
 
-        // 2. Permanent local cached PNG (valid King Fahd Madinah Mushaf PNG > 2 KB)
+        // 2. Permanent local cached PNG
         val imgF = pageFile(context, p)
         if (imgF.exists() && imgF.length() > 2000L) {
             val bmp = BitmapFactory.decodeFile(imgF.absolutePath)
@@ -231,39 +239,35 @@ object QuranData {
     }
 
     /**
-     * Downloads exact 1-to-1 King Fahd Complex Madinah Mushaf (15 lines, 604 pages)
-     * from official Quran for Android CDN (android.quran.com/data/width_1024/pageXXX.png).
-     * Page 001 = Al-Fatihah, Page 002 = Al-Baqarah, Page 102 = Juz 6 (An-Nisa 148), Page 604 = Ikhlas/Falaq/Nas.
+     * Downloads page PNG directly to disk using the exact same fast GitHub Pages CDN as Desktop Pro.
+     * Validates PNG magic bytes without decoding Bitmaps into RAM (prevents Android GC stalls/OOM).
      */
-    private fun downloadSinglePageImage(context: Context, p: Int): Bitmap? {
+    private fun downloadPageBytesToDisk(context: Context, p: Int): ByteArray? {
         val safeP = p.coerceIn(1, 604)
         val padded = String.format("%03d", safeP)
         val imgFile = pageFile(context, safeP)
         val tmpFile = File(imgFile.parentFile, "page$padded.tmp")
         val urls = listOf(
-            "https://android.quran.com/data/width_1024/page$padded.png",
-            "https://android.quran.com/data/width_1260/page$padded.png"
+            "https://govarjabbar.github.io/Quran-PNG/$padded.png",
+            "https://raw.githubusercontent.com/GovarJabbar/Quran-PNG/master/$padded.png"
         )
         for (attempt in 1..2) {
             for (u in urls) {
                 var conn: HttpURLConnection? = null
                 try {
                     conn = (URL(u).openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 10000
-                        readTimeout = 20000
+                        connectTimeout = 8000
+                        readTimeout = 15000
                         instanceFollowRedirects = true
-                        setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 13) MuslimTimeKeeper/2.0.4")
+                        setRequestProperty("User-Agent", "Mozilla/5.0 MuslimTimeKeeperPro")
                     }
                     if (conn.responseCode == 200) {
                         val bytes = conn.inputStream.use { it.readBytes() }
-                        if (bytes.size > 2000) {
-                            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                            if (bmp != null) {
-                                FileOutputStream(tmpFile).use { it.write(bytes) }
-                                if (imgFile.exists()) imgFile.delete()
-                                tmpFile.renameTo(imgFile)
-                                return bmp
-                            }
+                        if (isValidPngBytes(bytes)) {
+                            FileOutputStream(tmpFile).use { it.write(bytes) }
+                            if (imgFile.exists()) imgFile.delete()
+                            tmpFile.renameTo(imgFile)
+                            return bytes
                         }
                     }
                 } catch (_: Exception) {
@@ -279,14 +283,18 @@ object QuranData {
         val p = pageNum.coerceIn(1, 604)
         getCachedPageInstant(context, p)?.let { return it }
 
-        downloadSinglePageImage(context, p)?.let { return MushafPageResult(it, null) }
+        val bytes = downloadPageBytesToDisk(context, p)
+        if (bytes != null) {
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+            if (bmp != null) return MushafPageResult(bmp, null)
+        }
 
         // Fallback: Uthmani Text via AlQuran.cloud API (cached permanently offline!)
         val txtF = textFile(context, p)
         try {
             val conn = (URL("https://api.alquran.cloud/v1/page/$p/quran-uthmani").openConnection() as HttpURLConnection).apply {
-                connectTimeout = 10000
-                readTimeout = 15000
+                connectTimeout = 8000
+                readTimeout = 12000
                 setRequestProperty("User-Agent", "Mozilla/5.0 MuslimTimeKeeper")
             }
             if (conn.responseCode == 200) {
@@ -319,8 +327,7 @@ object QuranData {
     }
 
     /**
-     * Reliable 4-thread resumable downloader using official android.quran.com CDN.
-     * Skips already cached pages automatically and retries transient network errors.
+     * Ultra-fast 8-thread resumable downloader matching Desktop Pro speed (no Bitmap decoding overhead).
      */
     fun downloadAllPages(
         context: Context,
@@ -337,19 +344,18 @@ object QuranData {
         onProgress(done.get(), 604)
         if (missing.isEmpty()) return true
 
-        val pool = Executors.newFixedThreadPool(4)
+        val pool = Executors.newFixedThreadPool(8)
         for (p in missing) {
             pool.execute {
                 if (isCancelled()) return@execute
-                val bmp = downloadSinglePageImage(context, p)
-                if (bmp != null) {
-                    bmp.recycle()
+                val bytes = downloadPageBytesToDisk(context, p)
+                if (bytes != null) {
                     onProgress(done.incrementAndGet(), 604)
                 }
             }
         }
         pool.shutdown()
-        try { pool.awaitTermination(45, TimeUnit.MINUTES) } catch (_: Exception) { }
+        try { pool.awaitTermination(30, TimeUnit.MINUTES) } catch (_: Exception) { }
         return done.get() >= 604
     }
 }
