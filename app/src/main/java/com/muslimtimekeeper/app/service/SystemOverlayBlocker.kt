@@ -10,6 +10,9 @@ import android.media.MediaPlayer
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.text.InputType
@@ -89,6 +92,29 @@ class SystemOverlayBlocker(
                     tts?.setSpeechRate(0.88f)
                     if (voiceEnabled) speakDhikr(initialText)
                 }
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun vibrateOverlayDhikr(completed: Boolean) {
+        try {
+            val vib: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            if (vib == null || !vib.hasVibrator()) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (completed) {
+                    vib.vibrate(VibrationEffect.createWaveform(longArrayOf(0L, 120L, 65L, 160L), -1))
+                } else {
+                    vib.vibrate(VibrationEffect.createOneShot(18L, VibrationEffect.DEFAULT_AMPLITUDE))
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                if (completed) vib.vibrate(longArrayOf(0L, 120L, 65L, 160L), -1) else vib.vibrate(18L)
             }
         } catch (_: Exception) { }
     }
@@ -292,6 +318,7 @@ class SystemOverlayBlocker(
             fun advanceDhikr() {
                 left--
                 if (left <= 0) {
+                    vibrateOverlayDhikr(true)
                     idx++
                     if (idx >= items.size) {
                         Toast.makeText(
@@ -308,6 +335,8 @@ class SystemOverlayBlocker(
                     val nextText = if (ar) items[idx].arText else items[idx].enText
                     dhikrTv.text = nextText
                     speakDhikr(nextText)
+                } else {
+                    vibrateOverlayDhikr(false)
                 }
                 remTv.text = if (ar) "المتبقي: $left" else "Remaining: $left"
             }

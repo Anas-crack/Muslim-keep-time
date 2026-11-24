@@ -196,6 +196,10 @@ class PrefsStore(context: Context) {
         get() = prefs.getBoolean("sleep_adhkar_rem_enabled", true)
         set(v) = prefs.edit().putBoolean("sleep_adhkar_rem_enabled", v).apply()
 
+    var scheduleReminderMinutes: Int
+        get() = prefs.getInt("schedule_reminder_minutes", 5)
+        set(v) = prefs.edit().putInt("schedule_reminder_minutes", v.coerceIn(5, 60)).apply()
+
     var lastMushafPage: Int
         get() = prefs.getInt("last_mushaf_page", 1)
         set(v) = prefs.edit().putInt("last_mushaf_page", v.coerceIn(1, 604)).apply()

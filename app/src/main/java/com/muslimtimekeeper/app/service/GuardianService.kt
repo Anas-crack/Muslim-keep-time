@@ -12,6 +12,13 @@ import android.content.Intent
 import android.media.AudioManager
 import android.net.TrafficStats
 import android.net.VpnService
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
+import android.widget.RemoteViews
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
@@ -106,20 +113,57 @@ class GuardianService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    private fun vibrateAlertPattern() {
+        try {
+            val vib: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                val vm = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
+                vm?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            if (vib == null || !vib.hasVibrator()) return
+            val pattern = longArrayOf(0L, 260L, 120L, 260L, 120L, 320L)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vib.vibrate(VibrationEffect.createWaveform(pattern, -1))
+            } else {
+                @Suppress("DEPRECATION")
+                vib.vibrate(pattern, -1)
+            }
+        } catch (_: Exception) { }
+    }
+
     private fun buildNotification(): Notification {
-        val chId = "mtk_guardian_channel"
+        val chId = "mtk_prayer_live_channel"
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(
-            NotificationChannel(chId, "Next Prayer Countdown & Protection", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(chId, "مواقيت الصلاة والعد التنازلي", NotificationManager.IMPORTANCE_LOW).apply {
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
             }
         )
         val ar = store.isArabic
-        val nxt = PrayerCalculator.getNextPrayer(store.latitude, store.longitude, store.timezoneOffset, ar)
-        val exactTime = PrayerCalculator.formatExactTime(nxt.second, ar)
-        val remStr = PrayerCalculator.formatRemaining(nxt.second - System.currentTimeMillis(), ar)
-        val title = if (ar) "🕌 الصلاة القادمة: ${nxt.first} ($exactTime)" else "🕌 Next Prayer: ${nxt.first} ($exactTime)"
-        val body = if (ar) "⏳ متبقي $remStr على أذان ${nxt.first}" else "⏳ $remStr remaining until ${nxt.first}"
+        val now = System.currentTimeMillis()
+        val win = PrayerCalculator.getPrayerProgressWindow(store.latitude, store.longitude, store.timezoneOffset, ar)
+        val exactTime = PrayerCalculator.formatExactTime(win.nextMillis, ar)
+        val hms = PrayerCalculator.formatCountdownHms(win.nextMillis - now)
+        val hijri = PrayerCalculator.formatHijriDate(ar)
+
+        val totalSpan = (win.nextMillis - win.prevMillis).coerceAtLeast(1L)
+        val elapsed = (now - win.prevMillis).coerceIn(0L, totalSpan)
+        val progress = ((elapsed * 1000L) / totalSpan).toInt().coerceIn(0, 1000)
+
+        val countdownLine = if (ar) "${win.nextName} بعد $hms" else "${win.nextName} in $hms"
+
+        val rv = RemoteViews(packageName, R.layout.notif_prayer_live).apply {
+            setImageViewResource(R.id.notif_app_logo, R.drawable.app_logo)
+            setTextViewText(R.id.notif_prayer_name, win.nextName)
+            setTextViewText(R.id.notif_prayer_time, exactTime)
+            setTextViewText(R.id.notif_hijri_date, hijri)
+            setTextViewText(R.id.notif_countdown_hms, countdownLine)
+            setProgressBar(R.id.notif_prayer_progress, 1000, progress, false)
+        }
 
         val openIntent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
@@ -130,13 +174,19 @@ class GuardianService : Service() {
         )
 
         return NotificationCompat.Builder(this, chId)
-            .setContentTitle(title)
-            .setContentText(body)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_mosque)
+            .setColor(Color.parseColor("#0284C7"))
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setCustomContentView(rv)
+            .setCustomBigContentView(rv)
+            .setContentTitle("${win.nextName} • $exactTime")
+            .setContentText(countdownLine)
             .setContentIntent(pi)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setSilent(true)
+            .setShowWhen(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .build()
     }
 
@@ -243,22 +293,32 @@ class GuardianService : Service() {
         }
     }
 
-    private fun sendPreAlert(key: String, msg: String) {
+    private fun sendPreAlert(key: String, msg: String, vibrate: Boolean = true) {
         val fullKey = "${store.todayStr()}_$key"
         if (sentAlerts.contains(fullKey)) return
         sentAlerts.add(fullKey)
-        val chId = "mtk_alerts_channel"
+        val chId = "mtk_alerts_v2_channel"
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.createNotificationChannel(NotificationChannel(chId, "Time & Prayer Alerts", NotificationManager.IMPORTANCE_HIGH))
+        nm.createNotificationChannel(
+            NotificationChannel(chId, "تنبيهات الصلاة والدروس", NotificationManager.IMPORTANCE_HIGH).apply {
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0L, 260L, 120L, 260L)
+            }
+        )
+        val largeBmp = try { BitmapFactory.decodeResource(resources, R.drawable.app_logo) } catch (_: Exception) { null }
         val notif = NotificationCompat.Builder(this, chId)
             .setContentTitle(if (store.isArabic) "⏰ تنبيه حارس وقت المسلم" else "⏰ Muslim Time Keeper Alert")
             .setContentText(msg)
             .setStyle(NotificationCompat.BigTextStyle().bigText(msg))
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_mosque)
+            .setColor(Color.parseColor("#0284C7"))
+            .setLargeIcon(largeBmp)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .build()
         nm.notify(key.hashCode(), notif)
+        if (vibrate) vibrateAlertPattern()
     }
 
     private fun updateDataQuotaUsage() {
@@ -347,20 +407,23 @@ class GuardianService : Service() {
             }
         }
 
-        // 3. Daily Schedule 5-Minute Pre-Alerts for lessons & appointments (respecting selected weekdays)!
+        // 3. Daily Schedule Pre-Alerts using global user-selected lead time (5 / 10 / 30 / 60 min) + Vibration!
         val today = store.todayStr()
         val todayDow = nowCal.get(Calendar.DAY_OF_WEEK)
+        val leadMin = store.scheduleReminderMinutes.coerceIn(5, 60)
         for (item in store.getScheduleItems()) {
             if (!item.enabled || item.doneDate == today) continue
             if (item.days.isNotEmpty() && todayDow !in item.days) continue
             val itemMin = item.hour * 60 + item.minute
             val diff = itemMin - nowMinOfDay
-            if (diff in 1..5) {
-                val tStr = String.format("%02d:%02d", item.hour, item.minute)
+            if (diff in 1..leadMin) {
+                val calTmp = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, item.hour); set(Calendar.MINUTE, item.minute) }
+                val tStr = PrayerCalculator.formatExactTime(calTmp.timeInMillis, ar)
                 sendPreAlert(
-                    "sched_${item.id}",
-                    if (ar) "📅 تذكير بالجدول اليومي: متبقي $diff دقائق على موعد «${item.title}» (الساعة $tStr)!"
-                    else "📅 Daily Schedule Reminder: '${item.title}' starts in $diff min ($tStr)!"
+                    "sched_${item.id}_$leadMin",
+                    if (ar) "📅 تذكير بالدرس: متبقي $diff دقيقة على «${item.title}» (الساعة $tStr)!"
+                    else "📅 Lesson Reminder: '${item.title}' starts in $diff min ($tStr)!",
+                    vibrate = true
                 )
             }
         }
@@ -370,7 +433,7 @@ class GuardianService : Service() {
         store.ensureToday()
         if (tickCounter % 3 == 0) updateDataQuotaUsage()
         if (tickCounter % 15 == 0) checkProactiveReminders()
-        if (tickCounter % 30 == 0) updatePersistentPrayerNotification()
+        updatePersistentPrayerNotification()
         if (tickCounter % 60 == 0) {
             store.recordDayStats(store.todayStr(), store.phoneSecondsUsedToday, store.dataUsedTodayBytes)
         }

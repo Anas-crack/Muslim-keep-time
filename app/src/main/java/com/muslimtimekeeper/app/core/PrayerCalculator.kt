@@ -1,5 +1,6 @@
 package com.muslimtimekeeper.app.core
 
+import android.icu.util.IslamicCalendar
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -8,6 +9,7 @@ import java.util.TimeZone
 import kotlin.math.*
 
 data class PrayerWindow(val name: String, val startMillis: Long, val endMillis: Long)
+data class PrayerProgressInfo(val nextName: String, val prevMillis: Long, val nextMillis: Long)
 
 object PrayerCalculator {
     val presetCities = linkedMapOf(
@@ -217,5 +219,55 @@ object PrayerCalculator {
             }
         }
         return null
+    }
+
+    fun getPrayerProgressWindow(lat: Double, lon: Double, tz: Double, isAr: Boolean): PrayerProgressInfo {
+        val now = System.currentTimeMillis()
+        val todayMap = calculateToday(lat, lon, tz).entries.toList()
+        for (i in todayMap.indices) {
+            val (name, cal) = todayMap[i]
+            if (cal.timeInMillis > now) {
+                val prevMs = if (i > 0) {
+                    todayMap[i - 1].value.timeInMillis
+                } else {
+                    val yest = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, -1) }
+                    calculateForDate(yest, lat, lon, tz)["Isha"]!!.timeInMillis
+                }
+                return PrayerProgressInfo(localizedName(name, isAr), prevMs, cal.timeInMillis)
+            }
+        }
+        val prevIsha = todayMap.last().value.timeInMillis
+        val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, 1) }
+        val tomorrowFajr = calculateForDate(tomorrow, lat, lon, tz)["Fajr"]!!.timeInMillis
+        return PrayerProgressInfo(localizedName("Fajr", isAr), prevIsha, tomorrowFajr)
+    }
+
+    fun formatCountdownHms(diffMillis: Long): String {
+        val totalSec = (diffMillis.coerceAtLeast(0L) / 1000L).toInt()
+        val h = totalSec / 3600
+        val m = (totalSec % 3600) / 60
+        val s = totalSec % 60
+        return String.format(Locale.US, "%02d:%02d:%02d", h, m, s)
+    }
+
+    fun formatHijriDate(isAr: Boolean): String {
+        return try {
+            val hc = IslamicCalendar()
+            val day = hc.get(IslamicCalendar.DAY_OF_MONTH)
+            val month = hc.get(IslamicCalendar.MONTH)
+            val year = hc.get(IslamicCalendar.YEAR)
+            val monthsAr = arrayOf(
+                "محرم", "صفر", "ربيع الأول", "ربيع الثاني", "جمادى الأولى", "جمادى الثاني",
+                "رجب", "شعبان", "رمضان", "شوال", "ذو القعدة", "ذو الحجة"
+            )
+            val monthsEn = arrayOf(
+                "Muharram", "Safar", "Rabi I", "Rabi II", "Jumada I", "Jumada II",
+                "Rajab", "Sha'ban", "Ramadan", "Shawwal", "Dhul Qi'dah", "Dhul Hijjah"
+            )
+            val mName = if (month in 0..11) (if (isAr) monthsAr[month] else monthsEn[month]) else ""
+            "$day $mName $year"
+        } catch (_: Exception) {
+            ""
+        }
     }
 }

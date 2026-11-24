@@ -1555,12 +1555,56 @@ class MainActivity : AppCompatActivity() {
         val scroll = ScrollView(this)
         val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(14), dp(14), dp(24)) }
 
+        val curLead = store.scheduleReminderMinutes
+        val leadLabel = when (curLead) {
+            60 -> if (ar) "ساعة" else "1 hour"
+            30 -> if (ar) "نصف ساعة" else "30 min"
+            10 -> if (ar) "10 دقائق" else "10 min"
+            else -> if (ar) "5 دقائق" else "5 min"
+        }
         val hdrCard = makeCard(if (ar) "📅 جدول الدروس والمواعيد" else "📅 Lessons & Schedule")
         hdrCard.addView(TextView(this).apply {
-            text = if (ar) "أضف دروسك ومواعيدك وحدد أيام كل درس في الأسبوع (حتى 4 أيام لكل درس)، وسيرسل الهاتف إشعارًا تلقائيًا قبل الموعد بـ 5 دقائق في أيام الدرس فقط."
-            else "Add lessons and pick up to 4 weekdays per lesson; your phone will notify you 5 minutes before each lesson on its scheduled days."
+            text = if (ar) "أضف دروسك وحدد أيام كل درس (حتى 4 أيام)، وسيرسل الهاتف إشعارًا مع هزاز قبل كل درس بـ $leadLabel في أيامه فقط."
+            else "Add lessons (up to 4 weekdays each); your phone will notify and vibrate $leadLabel before each lesson."
             textSize = 12.5f; setTextColor(textMuted())
         })
+
+        // Global Pre-Lesson Reminder Lead Time Picker (applies to ALL lessons)
+        hdrCard.addView(TextView(this).apply {
+            text = if (ar) "🔔 وقت التذكير (رسالة + هزاز) قبل كل الدروس:" else "🔔 Reminder before all lessons (Alert + Vibrate):"
+            textSize = 12.5f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol())
+            setPadding(0, dp(10), 0, dp(6))
+        })
+        val remRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }
+        }
+        val leadChoices = listOf(
+            5 to (if (ar) "5 د" else "5m"),
+            10 to (if (ar) "10 د" else "10m"),
+            30 to (if (ar) "نصف ساعة" else "30m"),
+            60 to (if (ar) "ساعة" else "1h")
+        )
+        for ((mins, lbl) in leadChoices) {
+            val active = (curLead == mins)
+            remRow.addView(Button(this).apply {
+                text = lbl; isAllCaps = false; textSize = 12f; setTypeface(null, Typeface.BOLD)
+                background = if (active) gradientBg("#059669", "#10B981", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                setTextColor(if (active) Color.WHITE else Color.parseColor(btnNeutralFg()))
+                layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
+                setOnClickListener {
+                    store.scheduleReminderMinutes = mins
+                    vibrateDhikr(false)
+                    Toast.makeText(
+                        this@MainActivity,
+                        if (ar) "تم ضبط التذكير (رسالة + هزاز) قبل كل درس بـ $lbl" else "Lesson reminder set to $lbl before class",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    renderTab(3)
+                }
+            })
+        }
+        hdrCard.addView(remRow)
         hdrCard.addView(makeBtn(if (ar) "➕ إضافة درس أو موعد جديد" else "➕ Add Lesson / Appointment", "#059669", "#10B981") {
             var pickedH = 16
             var pickedM = 0
