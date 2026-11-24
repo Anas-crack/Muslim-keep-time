@@ -1,6 +1,10 @@
 package com.muslimtimekeeper.app.core
 
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.*
 
 data class PrayerWindow(val name: String, val startMillis: Long, val endMillis: Long)
@@ -67,10 +71,16 @@ object PrayerCalculator {
         return sunAngleTime(jd, lat, angle, t, false)
     }
 
+    // Automatically honors Egypt Daylight Saving Time (UTC+2 <-> UTC+3) using live system offset when in same zone
+    private fun effectiveTz(cal: Calendar, baseTz: Double): Double {
+        val deviceTz = TimeZone.getDefault().getOffset(cal.timeInMillis) / 3_600_000.0
+        return if (abs(deviceTz - baseTz) <= 1.5) deviceTz else baseTz
+    }
+
     private fun hoursToCal(base: Calendar, hours: Double): Calendar {
-        val hFixed = fixHour(hours + 0.5 / 60.0)
-        val h = hFixed.toInt()
-        val m = ((hFixed - h) * 60.0).toInt()
+        val totalMinutes = floor(fixHour(hours) * 60.0 + 0.5).toInt()
+        val h = (totalMinutes / 60) % 24
+        val m = totalMinutes % 60
         return (base.clone() as Calendar).apply {
             set(Calendar.HOUR_OF_DAY, h)
             set(Calendar.MINUTE, m)
@@ -80,24 +90,57 @@ object PrayerCalculator {
     }
 
     /**
-     * Five obligatory prayers (used for Adhan & Prayer Lock)
+     * Two-pass iterative astronomical calculation (Egyptian General Authority of Survey:
+     * Fajr 19.5°, Isha 17.5°, Sunrise/Maghrib 0.833°, Shafi'i Asr).
      */
-    fun calculateToday(lat: Double, lon: Double, tz: Double): LinkedHashMap<String, Calendar> {
-        val cal = Calendar.getInstance()
+    private fun computeHoursForDate(cal: Calendar, lat: Double, lon: Double, tz: Double): Map<String, Double> {
         val y = cal.get(Calendar.YEAR)
         val m = cal.get(Calendar.MONTH) + 1
         val d = cal.get(Calendar.DAY_OF_MONTH)
         val jd = julianDate(y, m, d) - lon / (15.0 * 24.0)
-        val shift = tz - lon / 15.0
+        val shift = effectiveTz(cal, tz) - lon / 15.0
 
-        // Egyptian General Authority of Survey (Fajr 19.5°, Isha 17.5°)
+        // Pass 1: initial solar positions
+        var fajr = sunAngleTime(jd, lat, 19.5, 5.0 / 24.0, true)
+        var sunrise = sunAngleTime(jd, lat, 0.833, 6.0 / 24.0, true)
+        var dhuhr = midDay(jd, 12.0 / 24.0)
+        var asr = asrTime(jd, lat, 1, 13.0 / 24.0)
+        var maghrib = sunAngleTime(jd, lat, 0.833, 18.0 / 24.0, false)
+        var isha = sunAngleTime(jd, lat, 17.5, 18.0 / 24.0, false)
+
+        // Pass 2: refine each prayer using its exact fractional day time
+        fajr = sunAngleTime(jd, lat, 19.5, fajr / 24.0, true) + shift
+        sunrise = sunAngleTime(jd, lat, 0.833, sunrise / 24.0, true) + shift
+        dhuhr = midDay(jd, dhuhr / 24.0) + shift
+        asr = asrTime(jd, lat, 1, asr / 24.0) + shift
+        maghrib = sunAngleTime(jd, lat, 0.833, maghrib / 24.0, false) + shift
+        isha = sunAngleTime(jd, lat, 17.5, isha / 24.0, false) + shift
+
+        return mapOf(
+            "Fajr" to fajr,
+            "Sunrise" to sunrise,
+            "Duha" to (sunrise + 15.0 / 60.0),
+            "Dhuhr" to dhuhr,
+            "Asr" to asr,
+            "Maghrib" to maghrib,
+            "Isha" to isha
+        )
+    }
+
+    fun calculateForDate(cal: Calendar, lat: Double, lon: Double, tz: Double): LinkedHashMap<String, Calendar> {
+        val hrs = computeHoursForDate(cal, lat, lon, tz)
         val map = linkedMapOf<String, Calendar>()
-        map["Fajr"] = hoursToCal(cal, sunAngleTime(jd, lat, 19.5, 5.0 / 24.0, true) + shift)
-        map["Dhuhr"] = hoursToCal(cal, midDay(jd, 12.0 / 24.0) + shift)
-        map["Asr"] = hoursToCal(cal, asrTime(jd, lat, 1, 13.0 / 24.0) + shift)
-        map["Maghrib"] = hoursToCal(cal, sunAngleTime(jd, lat, 0.833, 18.0 / 24.0, false) + shift)
-        map["Isha"] = hoursToCal(cal, sunAngleTime(jd, lat, 17.5, 18.0 / 24.0, false) + shift)
+        for (k in listOf("Fajr", "Dhuhr", "Asr", "Maghrib", "Isha")) {
+            map[k] = hoursToCal(cal, hrs[k]!!)
+        }
         return map
+    }
+
+    /**
+     * Five obligatory prayers for today (used for Adhan & Prayer Lock)
+     */
+    fun calculateToday(lat: Double, lon: Double, tz: Double): LinkedHashMap<String, Calendar> {
+        return calculateForDate(Calendar.getInstance(), lat, lon, tz)
     }
 
     /**
@@ -105,23 +148,11 @@ object PrayerCalculator {
      */
     fun calculateDisplayTimes(lat: Double, lon: Double, tz: Double): LinkedHashMap<String, Calendar> {
         val cal = Calendar.getInstance()
-        val y = cal.get(Calendar.YEAR)
-        val m = cal.get(Calendar.MONTH) + 1
-        val d = cal.get(Calendar.DAY_OF_MONTH)
-        val jd = julianDate(y, m, d) - lon / (15.0 * 24.0)
-        val shift = tz - lon / 15.0
-
-        val sunriseH = sunAngleTime(jd, lat, 0.833, 6.0 / 24.0, true) + shift
-        val duhaH = sunriseH + (15.0 / 60.0)
-
+        val hrs = computeHoursForDate(cal, lat, lon, tz)
         val map = linkedMapOf<String, Calendar>()
-        map["Fajr"] = hoursToCal(cal, sunAngleTime(jd, lat, 19.5, 5.0 / 24.0, true) + shift)
-        map["Sunrise"] = hoursToCal(cal, sunriseH)
-        map["Duha"] = hoursToCal(cal, duhaH)
-        map["Dhuhr"] = hoursToCal(cal, midDay(jd, 12.0 / 24.0) + shift)
-        map["Asr"] = hoursToCal(cal, asrTime(jd, lat, 1, 13.0 / 24.0) + shift)
-        map["Maghrib"] = hoursToCal(cal, sunAngleTime(jd, lat, 0.833, 18.0 / 24.0, false) + shift)
-        map["Isha"] = hoursToCal(cal, sunAngleTime(jd, lat, 17.5, 18.0 / 24.0, false) + shift)
+        for (k in listOf("Fajr", "Sunrise", "Duha", "Dhuhr", "Asr", "Maghrib", "Isha")) {
+            map[k] = hoursToCal(cal, hrs[k]!!)
+        }
         return map
     }
 
@@ -144,8 +175,35 @@ object PrayerCalculator {
         for ((name, cal) in calculateToday(lat, lon, tz)) {
             if (cal.timeInMillis > now) return Pair(localizedName(name, isAr), cal.timeInMillis)
         }
-        val fajr = calculateToday(lat, lon, tz)["Fajr"]!!.timeInMillis + 86_400_000L
-        return Pair(localizedName("Fajr", isAr), fajr)
+        val tomorrow = Calendar.getInstance().apply { add(Calendar.DAY_OF_MONTH, 1) }
+        val tomorrowFajr = calculateForDate(tomorrow, lat, lon, tz)["Fajr"]!!.timeInMillis
+        return Pair(localizedName("Fajr", isAr), tomorrowFajr)
+    }
+
+    fun formatRemaining(diffMillis: Long, isAr: Boolean): String {
+        val totalMin = ((diffMillis.coerceAtLeast(0L) + 59_999L) / 60_000L).toInt()
+        val h = totalMin / 60
+        val m = totalMin % 60
+        return if (isAr) {
+            when {
+                totalMin <= 1 -> "أقل من دقيقة"
+                h == 0 -> "$m دقيقة"
+                m == 0 -> "$h ساعة"
+                else -> "$h س $m د"
+            }
+        } else {
+            when {
+                totalMin <= 1 -> "< 1 min"
+                h == 0 -> "${m}m"
+                m == 0 -> "${h}h"
+                else -> "${h}h ${m}m"
+            }
+        }
+    }
+
+    fun formatExactTime(millis: Long, isAr: Boolean): String {
+        val raw = SimpleDateFormat("hh:mm a", Locale.US).format(Date(millis))
+        return if (isAr) raw.replace("AM", "ص").replace("PM", "م") else raw
     }
 
     fun getActivePrayer(lat: Double, lon: Double, tz: Double, durationMin: Int): PrayerWindow? {

@@ -22,7 +22,8 @@ data class ScheduleItem(
     val hour: Int,
     val minute: Int,
     val enabled: Boolean = true,
-    val doneDate: String = ""
+    val doneDate: String = "",
+    val days: List<Int> = emptyList()
 )
 
 class PrefsStore(context: Context) {
@@ -209,6 +210,13 @@ class PrefsStore(context: Context) {
         val list = mutableListOf<ScheduleItem>()
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
+            val daysArr = o.optJSONArray("days")
+            val daysList = mutableListOf<Int>()
+            if (daysArr != null) {
+                for (dIdx in 0 until daysArr.length()) {
+                    daysList.add(daysArr.optInt(dIdx))
+                }
+            }
             list.add(
                 ScheduleItem(
                     id = o.optString("id", "${i}"),
@@ -216,7 +224,8 @@ class PrefsStore(context: Context) {
                     hour = o.optInt("h", 16),
                     minute = o.optInt("m", 0),
                     enabled = o.optBoolean("en", true),
-                    doneDate = o.optString("done", "")
+                    doneDate = o.optString("done", ""),
+                    days = daysList
                 )
             )
         }
@@ -233,6 +242,7 @@ class PrefsStore(context: Context) {
                 put("m", it.minute)
                 put("en", it.enabled)
                 put("done", it.doneDate)
+                put("days", JSONArray().apply { it.days.forEach { d -> put(d) } })
             })
         }
         prefs.edit().putString("daily_schedule_json", arr.toString()).apply()

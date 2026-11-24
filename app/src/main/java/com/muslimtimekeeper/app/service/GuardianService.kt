@@ -3,6 +3,7 @@ package com.muslimtimekeeper.app.service
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
@@ -21,6 +22,7 @@ import com.muslimtimekeeper.app.R
 import com.muslimtimekeeper.app.core.PrayerCalculator
 import com.muslimtimekeeper.app.core.PrefsStore
 import com.muslimtimekeeper.app.ui.LockOverlayActivity
+import com.muslimtimekeeper.app.ui.MainActivity
 import java.util.Calendar
 
 class GuardianService : Service() {
@@ -108,14 +110,41 @@ class GuardianService : Service() {
         val chId = "mtk_guardian_channel"
         val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         nm.createNotificationChannel(
-            NotificationChannel(chId, "Muslim Time Keeper Protection", NotificationManager.IMPORTANCE_LOW)
+            NotificationChannel(chId, "Next Prayer Countdown & Protection", NotificationManager.IMPORTANCE_LOW).apply {
+                setShowBadge(false)
+            }
         )
+        val ar = store.isArabic
+        val nxt = PrayerCalculator.getNextPrayer(store.latitude, store.longitude, store.timezoneOffset, ar)
+        val exactTime = PrayerCalculator.formatExactTime(nxt.second, ar)
+        val remStr = PrayerCalculator.formatRemaining(nxt.second - System.currentTimeMillis(), ar)
+        val title = if (ar) "🕌 الصلاة القادمة: ${nxt.first} ($exactTime)" else "🕌 Next Prayer: ${nxt.first} ($exactTime)"
+        val body = if (ar) "⏳ متبقي $remStr على أذان ${nxt.first}" else "⏳ $remStr remaining until ${nxt.first}"
+
+        val openIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pi = PendingIntent.getActivity(
+            this, 0, openIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
         return NotificationCompat.Builder(this, chId)
-            .setContentTitle("Muslim Time Keeper Active")
-            .setContentText("Monitoring screen time, bedtime, prayer, Adhkar & data quota")
+            .setContentTitle(title)
+            .setContentText(body)
             .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentIntent(pi)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
             .build()
+    }
+
+    private fun updatePersistentPrayerNotification() {
+        try {
+            val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            nm.notify(101, buildNotification())
+        } catch (_: Exception) { }
     }
 
     private fun enableMosqueSilent() {
@@ -318,10 +347,12 @@ class GuardianService : Service() {
             }
         }
 
-        // 3. Daily Schedule 5-Minute Pre-Alerts for lessons & appointments!
+        // 3. Daily Schedule 5-Minute Pre-Alerts for lessons & appointments (respecting selected weekdays)!
         val today = store.todayStr()
+        val todayDow = nowCal.get(Calendar.DAY_OF_WEEK)
         for (item in store.getScheduleItems()) {
             if (!item.enabled || item.doneDate == today) continue
+            if (item.days.isNotEmpty() && todayDow !in item.days) continue
             val itemMin = item.hour * 60 + item.minute
             val diff = itemMin - nowMinOfDay
             if (diff in 1..5) {
@@ -339,6 +370,7 @@ class GuardianService : Service() {
         store.ensureToday()
         if (tickCounter % 3 == 0) updateDataQuotaUsage()
         if (tickCounter % 15 == 0) checkProactiveReminders()
+        if (tickCounter % 30 == 0) updatePersistentPrayerNotification()
         if (tickCounter % 60 == 0) {
             store.recordDayStats(store.todayStr(), store.phoneSecondsUsedToday, store.dataUsedTodayBytes)
         }
