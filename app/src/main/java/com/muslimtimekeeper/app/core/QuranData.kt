@@ -3,7 +3,8 @@ package com.muslimtimekeeper.app.core
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import org.json.JSONObject
+import android.util.LruCache
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
@@ -27,12 +28,11 @@ data class MushafPageResult(
 )
 
 /**
- * Authentic King Fahd Complex Madinah Mushaf (مصحف المدينة المنورة الأصلي — 604 صفحة)
- * Priority:
- *  1. Bundled local assets (app/src/main/assets/mushaf/page001.png or 001.png/.jpg) -> 100% Offline!
- *  2. Local cached pages in app storage -> Offline after first load!
- *  3. Verified fast GitHub/jsDelivr CDN mirrors of King Fahd Madinah Mushaf PNGs
- *  4. Guaranteed Uthmani text fallback via AlQuran.cloud API (cached offline too!)
+ * Authentic King Fahd Complex Madinah Mushaf (604 pages exact, 1..604).
+ * Identical CDN & 6-worker parallel offline downloader as Desktop Pro,
+ * using strictly ASCII zero-padded filenames (001.png .. 604.png) so Arabic-locale
+ * devices never format Arabic-Indic digits into URLs, plus permanent disk cache
+ * and 12-page in-memory LRU cache with background prefetching.
  */
 object QuranData {
     val surahs: List<SurahInfo> = listOf(
@@ -51,7 +51,7 @@ object QuranData {
         SurahInfo(13, "الرعد", "Ar-Ra'd", 249, 43, false),
         SurahInfo(14, "إبراهيم", "Ibrahim", 255, 52, true),
         SurahInfo(15, "الحجر", "Al-Hijr", 262, 99, true),
-        SurahInfo(16, "النحل", "An-Nahl", 267, 128, true),
+        SurahInfo(16, "النحل", "Al-Nahl", 267, 128, true),
         SurahInfo(17, "الإسراء", "Al-Isra", 282, 111, true),
         SurahInfo(18, "الكهف", "Al-Kahf", 293, 110, true),
         SurahInfo(19, "مريم", "Maryam", 305, 98, true),
@@ -152,11 +152,44 @@ object QuranData {
         SurahInfo(114, "الناس", "An-Nas", 604, 6, true)
     )
 
-    val juzStartPages: IntArray = intArrayOf(
+    val juzStartPages = intArrayOf(
         1, 22, 42, 62, 82, 102, 121, 142, 162, 182,
         201, 222, 242, 262, 282, 302, 322, 342, 362, 382,
         402, 422, 442, 462, 482, 502, 522, 542, 562, 582
     )
+
+    private const val CACHE_DIR_NAME = "mushaf_madani_png_v7"
+    private val memCache = object : LruCache<Int, Bitmap>(12) {}
+
+    // Pure ASCII 3-digit padding — 100% immune to Arabic-Indic digits on ar_EG phones!
+    private fun pad3(page: Int): String = page.coerceIn(1, 604).toString().padStart(3, '0')
+
+    private fun cacheDir(context: Context): File {
+        val dir = File(context.filesDir, CACHE_DIR_NAME)
+        if (!dir.exists()) dir.mkdirs()
+        return dir
+    }
+
+    private fun pageFile(context: Context, page: Int): File {
+        return File(cacheDir(context), "page_${pad3(page)}.png")
+    }
+
+    private fun isValidPng(bytes: ByteArray): Boolean {
+        return bytes.size > 1500 &&
+            bytes[0] == 0x89.toByte() &&
+            bytes[1] == 0x50.toByte() &&
+            bytes[2] == 0x4E.toByte() &&
+            bytes[3] == 0x47.toByte()
+    }
+
+    private fun pageUrls(page: Int): List<String> {
+        val padded = pad3(page)
+        return listOf(
+            "https://govarjabbar.github.io/Quran-PNG/$padded.png",
+            "https://cdn.jsdelivr.net/gh/GovarJabbar/Quran-PNG@master/$padded.png",
+            "https://raw.githubusercontent.com/GovarJabbar/Quran-PNG/master/$padded.png"
+        )
+    }
 
     fun getSurahForPage(page: Int): SurahInfo {
         var matched = surahs.first()
@@ -174,188 +207,159 @@ object QuranData {
         return juz
     }
 
-    private var oldCacheCleaned = false
-
-    private fun cacheDir(context: Context): File {
-        if (!oldCacheCleaned) {
-            oldCacheCleaned = true
-            try {
-                val legacy = File(context.filesDir, "mushaf_madani")
-                if (legacy.exists()) legacy.deleteRecursively()
-            } catch (_: Exception) { }
-        }
-        val dir = File(context.filesDir, "mushaf_madani_kfgqpc")
-        if (!dir.exists()) dir.mkdirs()
-        return dir
-    }
-
-    private fun pageFile(context: Context, pageNum: Int): File {
-        return File(cacheDir(context), String.format("page%03d.png", pageNum.coerceIn(1, 604)))
-    }
-
-    private fun textFile(context: Context, pageNum: Int): File {
-        return File(cacheDir(context), String.format("page%03d.txt", pageNum.coerceIn(1, 604)))
-    }
-
-    private fun isValidPngBytes(bytes: ByteArray): Boolean {
-        return bytes.size > 2000 &&
-            bytes[0] == 0x89.toByte() &&
-            bytes[1] == 0x50.toByte() &&
-            bytes[2] == 0x4E.toByte() &&
-            bytes[3] == 0x47.toByte()
-    }
-
-    /**
-     * Instant 0ms offline lookup (no network!). Checks bundled assets, cached PNG, and cached Uthmani text.
-     */
-    fun getCachedPageInstant(context: Context, pageNum: Int): MushafPageResult? {
-        val p = pageNum.coerceIn(1, 604)
-        val padded = String.format("%03d", p)
-
-        // 1. Local bundled assets/mushaf/
-        val localNames = listOf("mushaf/page$padded.png", "mushaf/$padded.png", "mushaf/page$padded.jpg", "mushaf/$padded.jpg")
-        for (name in localNames) {
-            try {
-                context.assets.open(name).use { stream ->
-                    val bmp = BitmapFactory.decodeStream(stream)
-                    if (bmp != null) return MushafPageResult(bmp, null)
-                }
-            } catch (_: Exception) { }
-        }
-
-        // 2. Permanent local cached PNG
-        val imgF = pageFile(context, p)
-        if (imgF.exists() && imgF.length() > 2000L) {
-            val bmp = BitmapFactory.decodeFile(imgF.absolutePath)
-            if (bmp != null) return MushafPageResult(bmp, null)
-        }
-
-        // 3. Permanent local cached Uthmani text
-        val txtF = textFile(context, p)
-        if (txtF.exists() && txtF.length() > 20L) {
-            return MushafPageResult(null, txtF.readText())
-        }
-        return null
-    }
-
-    /**
-     * Downloads page PNG directly to disk using the exact same fast GitHub Pages CDN as Desktop Pro.
-     * Validates PNG magic bytes without decoding Bitmaps into RAM (prevents Android GC stalls/OOM).
-     */
-    private fun downloadPageBytesToDisk(context: Context, p: Int): ByteArray? {
-        val safeP = p.coerceIn(1, 604)
-        val padded = String.format("%03d", safeP)
-        val imgFile = pageFile(context, safeP)
-        val tmpFile = File(imgFile.parentFile, "page$padded.tmp")
-        val urls = listOf(
-            "https://govarjabbar.github.io/Quran-PNG/$padded.png",
-            "https://raw.githubusercontent.com/GovarJabbar/Quran-PNG/master/$padded.png"
-        )
-        for (attempt in 1..2) {
-            for (u in urls) {
-                var conn: HttpURLConnection? = null
-                try {
-                    conn = (URL(u).openConnection() as HttpURLConnection).apply {
-                        connectTimeout = 8000
-                        readTimeout = 15000
-                        instanceFollowRedirects = true
-                        setRequestProperty("User-Agent", "Mozilla/5.0 MuslimTimeKeeperPro")
-                    }
-                    if (conn.responseCode == 200) {
-                        val bytes = conn.inputStream.use { it.readBytes() }
-                        if (isValidPngBytes(bytes)) {
-                            FileOutputStream(tmpFile).use { it.write(bytes) }
-                            if (imgFile.exists()) imgFile.delete()
-                            tmpFile.renameTo(imgFile)
-                            return bytes
-                        }
-                    }
-                } catch (_: Exception) {
-                } finally {
-                    try { conn?.disconnect() } catch (_: Exception) { }
-                }
-            }
-        }
-        return null
-    }
-
-    fun loadMushafPage(context: Context, pageNum: Int): MushafPageResult {
-        val p = pageNum.coerceIn(1, 604)
-        getCachedPageInstant(context, p)?.let { return it }
-
-        val bytes = downloadPageBytesToDisk(context, p)
-        if (bytes != null) {
-            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-            if (bmp != null) return MushafPageResult(bmp, null)
-        }
-
-        // Fallback: Uthmani Text via AlQuran.cloud API (cached permanently offline!)
-        val txtF = textFile(context, p)
-        try {
-            val conn = (URL("https://api.alquran.cloud/v1/page/$p/quran-uthmani").openConnection() as HttpURLConnection).apply {
-                connectTimeout = 8000
-                readTimeout = 12000
-                setRequestProperty("User-Agent", "Mozilla/5.0 MuslimTimeKeeper")
-            }
-            if (conn.responseCode == 200) {
-                val json = JSONObject(conn.inputStream.bufferedReader().readText())
-                val ayahs = json.getJSONObject("data").getJSONArray("ayahs")
-                val sb = StringBuilder()
-                for (i in 0 until ayahs.length()) {
-                    val a = ayahs.getJSONObject(i)
-                    sb.append(a.getString("text")).append(" ﴿").append(a.getInt("numberInSurah")).append("﴾  ")
-                }
-                val finalTxt = sb.toString().trim()
-                if (finalTxt.isNotEmpty()) {
-                    txtF.writeText(finalTxt)
-                    return MushafPageResult(null, finalTxt)
-                }
-            }
-        } catch (_: Exception) { }
-
-        return MushafPageResult(null, null)
-    }
-
     fun countCachedPages(context: Context): Int {
         val dir = cacheDir(context)
         var count = 0
         for (p in 1..604) {
-            val f = File(dir, String.format("page%03d.png", p))
-            if (f.exists() && f.length() > 2000L) count++
+            val f = File(dir, "page_${pad3(p)}.png")
+            if (f.exists() && f.length() > 1500L) count++
         }
         return count
     }
 
+    fun getCachedPageInstant(context: Context, page: Int): MushafPageResult? {
+        val p = page.coerceIn(1, 604)
+        memCache.get(p)?.let { bmp ->
+            if (!bmp.isRecycled) {
+                prefetchAdjacent(context, p)
+                return MushafPageResult(bmp, null)
+            }
+        }
+        val f = pageFile(context, p)
+        if (f.exists() && f.length() > 1500L) {
+            val bmp = try { BitmapFactory.decodeFile(f.absolutePath) } catch (_: Exception) { null }
+            if (bmp != null) {
+                memCache.put(p, bmp)
+                prefetchAdjacent(context, p)
+                return MushafPageResult(bmp, null)
+            }
+        }
+        return null
+    }
+
+    private fun downloadPageToDisk(context: Context, page: Int): Boolean {
+        val p = page.coerceIn(1, 604)
+        val target = pageFile(context, p)
+        if (target.exists() && target.length() > 1500L) return true
+
+        for (u in pageUrls(p)) {
+            var conn: HttpURLConnection? = null
+            try {
+                conn = (URL(u).openConnection() as HttpURLConnection).apply {
+                    connectTimeout = 10000
+                    readTimeout = 15000
+                    instanceFollowRedirects = true
+                    requestMethod = "GET"
+                    setRequestProperty("User-Agent", "Mozilla/5.0 MuslimTimeKeeperAndroid")
+                    setRequestProperty("Accept", "image/png,image/*;q=0.9,*/*;q=0.8")
+                }
+                if (conn.responseCode == HttpURLConnection.HTTP_OK) {
+                    val baos = ByteArrayOutputStream()
+                    conn.inputStream.use { inp ->
+                        val buf = ByteArray(16384)
+                        while (true) {
+                            val r = inp.read(buf)
+                            if (r <= 0) break
+                            baos.write(buf, 0, r)
+                        }
+                    }
+                    val bytes = baos.toByteArray()
+                    if (isValidPng(bytes)) {
+                        val tmp = File(cacheDir(context), "page_${pad3(p)}_${Thread.currentThread().id}.tmp")
+                        FileOutputStream(tmp).use { it.write(bytes) }
+                        if (!tmp.renameTo(target)) {
+                            tmp.copyTo(target, overwrite = true)
+                            tmp.delete()
+                        }
+                        return true
+                    }
+                }
+            } catch (_: Exception) {
+                // Try next mirror
+            } finally {
+                try { conn?.disconnect() } catch (_: Exception) {}
+            }
+        }
+        return false
+    }
+
+    private fun prefetchAdjacent(context: Context, page: Int) {
+        val appCtx = context.applicationContext
+        Thread {
+            for (adj in listOf(page + 1, page - 1)) {
+                if (adj in 1..604) {
+                    val f = pageFile(appCtx, adj)
+                    if (!f.exists() || f.length() <= 1500L) {
+                        downloadPageToDisk(appCtx, adj)
+                    }
+                    if (memCache.get(adj) == null && f.exists() && f.length() > 1500L) {
+                        try {
+                            BitmapFactory.decodeFile(f.absolutePath)?.let { memCache.put(adj, it) }
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+        }.start()
+    }
+
+    fun loadMushafPage(context: Context, page: Int): MushafPageResult {
+        val p = page.coerceIn(1, 604)
+        getCachedPageInstant(context, p)?.let { return it }
+
+        if (downloadPageToDisk(context, p)) {
+            val f = pageFile(context, p)
+            val bmp = try { BitmapFactory.decodeFile(f.absolutePath) } catch (_: Exception) { null }
+            if (bmp != null) {
+                memCache.put(p, bmp)
+                prefetchAdjacent(context, p)
+                return MushafPageResult(bmp, null)
+            }
+        }
+        return MushafPageResult(null, null)
+    }
+
     /**
-     * Ultra-fast 8-thread resumable downloader matching Desktop Pro speed (no Bitmap decoding overhead).
+     * Blazing-fast 6-worker parallel offline downloader (identical to Desktop Pro).
+     * Skips already-cached pages, updates live progress 0% -> 100%, and supports clean pause/resume.
      */
     fun downloadAllPages(
         context: Context,
         isCancelled: () -> Boolean,
         onProgress: (done: Int, total: Int) -> Unit
     ): Boolean {
-        val done = AtomicInteger(0)
+        val appCtx = context.applicationContext
         val missing = mutableListOf<Int>()
         for (p in 1..604) {
-            val f = pageFile(context, p)
-            if (f.exists() && f.length() > 2000L) done.incrementAndGet()
-            else missing.add(p)
+            val f = pageFile(appCtx, p)
+            if (!f.exists() || f.length() <= 1500L) missing.add(p)
         }
-        onProgress(done.get(), 604)
+        val doneCounter = AtomicInteger(604 - missing.size)
+        onProgress(doneCounter.get(), 604)
         if (missing.isEmpty()) return true
 
-        val pool = Executors.newFixedThreadPool(8)
+        val pool = Executors.newFixedThreadPool(6)
         for (p in missing) {
             pool.execute {
                 if (isCancelled()) return@execute
-                val bytes = downloadPageBytesToDisk(context, p)
-                if (bytes != null) {
-                    onProgress(done.incrementAndGet(), 604)
+                if (downloadPageToDisk(appCtx, p)) {
+                    val now = doneCounter.incrementAndGet()
+                    onProgress(now, 604)
                 }
             }
         }
         pool.shutdown()
-        try { pool.awaitTermination(30, TimeUnit.MINUTES) } catch (_: Exception) { }
-        return done.get() >= 604
+        try {
+            while (!pool.awaitTermination(300, TimeUnit.MILLISECONDS)) {
+                if (isCancelled()) {
+                    pool.shutdownNow()
+                    break
+                }
+            }
+        } catch (_: InterruptedException) {
+            pool.shutdownNow()
+        }
+        val finalCount = countCachedPages(appCtx)
+        onProgress(finalCount, 604)
+        return finalCount >= 604
     }
 }
