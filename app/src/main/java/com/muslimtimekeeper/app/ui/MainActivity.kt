@@ -14,6 +14,12 @@ import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
+import android.animation.ObjectAnimator
+import android.hardware.Sensor
+import android.hardware.SensorEvent
+import android.hardware.SensorEventListener
+import android.hardware.SensorManager
+import android.icu.util.IslamicCalendar
 import android.media.MediaPlayer
 import android.net.Uri
 import android.net.VpnService
@@ -320,7 +326,70 @@ class MainActivity : AppCompatActivity() {
             }.also { navBar.addView(it) }
         }
 
-        root.addView(topBar); root.addView(contentContainer); root.addView(navBar)
+        // Animated Rotating Crescent Ramadan Countdown Strip (opens on launch, spins & folds automatically!)
+        val arShell = store.isArabic
+        val (ramDays, ramCurDay) = PrayerCalculator.getRamadanCountdown()
+        val ramTextStr = when {
+            ramCurDay > 0 -> if (arShell) "رمضان مبارك! اليوم $ramCurDay من شهر رمضان ✨" else "Ramadan Mubarak! Day $ramCurDay ✨"
+            ramDays > 0 -> if (arShell) "باقي $ramDays يومًا على شهر رمضان المبارك ✨" else "$ramDays days remaining until Ramadan ✨"
+            else -> if (arShell) "اللهم بلغنا رمضان ✨" else "May Allah let us reach Ramadan ✨"
+        }
+        val ramBar = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
+            background = gradientBg("#0F2A3E", "#134E4A", 14)
+            setPadding(dp(10), dp(6), dp(12), dp(6))
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                marginStart = dp(10); marginEnd = dp(10); topMargin = dp(4); bottomMargin = dp(4)
+            }
+        }
+        val crescentTv = TextView(this).apply {
+            text = "🌙"; textSize = 18f; gravity = Gravity.CENTER
+            setPadding(dp(4), 0, dp(6), 0)
+        }
+        val ramMsgTv = TextView(this).apply {
+            text = ramTextStr; textSize = 12.5f; setTypeface(null, Typeface.BOLD)
+            setTextColor(Color.parseColor("#FDE68A"))
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val hijriQuickBtn = TextView(this).apply {
+            text = if (arShell) "🗓️ هجري" else "🗓️ Hijri"
+            textSize = 11.5f; setTypeface(null, Typeface.BOLD); setTextColor(Color.WHITE)
+            background = gradientBg("#0284C7", "#0EA5E9", 10)
+            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setOnClickListener { openHijriCalendarDialog() }
+        }
+        ramBar.addView(crescentTv); ramBar.addView(ramMsgTv); ramBar.addView(hijriQuickBtn)
+
+        var ramExpanded = true
+        fun toggleRamadanRibbon(expand: Boolean) {
+            ramExpanded = expand
+            ObjectAnimator.ofFloat(crescentTv, "rotation", crescentTv.rotation, crescentTv.rotation + 360f).apply {
+                duration = 650L; start()
+            }
+            if (expand) {
+                ramMsgTv.visibility = View.VISIBLE
+                hijriQuickBtn.visibility = View.VISIBLE
+                ramBar.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = dp(10); marginEnd = dp(10); topMargin = dp(4); bottomMargin = dp(4)
+                }
+            } else {
+                ramMsgTv.visibility = View.GONE
+                hijriQuickBtn.visibility = View.GONE
+                ramBar.layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
+                    marginStart = dp(10); marginEnd = dp(10); topMargin = dp(4); bottomMargin = dp(4)
+                }
+            }
+        }
+        ramBar.setOnClickListener { toggleRamadanRibbon(!ramExpanded) }
+        // Spin open on launch, then auto-fold after 4.5s
+        uiHandler.postDelayed({
+            ObjectAnimator.ofFloat(crescentTv, "rotation", 0f, 360f).apply { duration = 700L; start() }
+        }, 250L)
+        uiHandler.postDelayed({
+            if (ramExpanded) toggleRamadanRibbon(false)
+        }, 4600L)
+
+        root.addView(topBar); root.addView(ramBar); root.addView(contentContainer); root.addView(navBar)
         setContentView(root)
     }
 
@@ -886,6 +955,61 @@ class MainActivity : AppCompatActivity() {
             }
         }
         ctrlCard.addView(prayerWaveView)
+        // Iqama Settings (El-Hosary Audio + Delay after Adhan)
+        val swIqama = Switch(this).apply {
+            text = if (store.isArabic) "📢 تشغيل صوت الإقامة (الشيخ الحصري) وقفل الشاشة عند الإقامة" else "📢 Play Iqama Audio (El-Hosary) & Lock at Iqama"
+            isChecked = store.iqamaAudioEnabled
+            setTextColor(textPrimary())
+            setOnCheckedChangeListener { _, c -> requireParentPin { store.iqamaAudioEnabled = c } }
+        }
+        ctrlCard.addView(swIqama)
+        ctrlCard.addView(TextView(this).apply {
+            text = if (store.isArabic) "⏱️ موعد الإقامة بعد الأذان بـ ${store.iqamaDelayMinutes} دقيقة:" else "⏱️ Iqama delay after Adhan: ${store.iqamaDelayMinutes} min:"
+            setTextColor(accentCol()); setTypeface(null, Typeface.BOLD); setPadding(0, dp(6), 0, dp(4))
+        })
+        val iqRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dp(8)) }
+        for (mins in listOf(5, 10, 15, 20)) {
+            val sel = (store.iqamaDelayMinutes == mins)
+            iqRow.addView(Button(this).apply {
+                text = if (store.isArabic) "$mins د" else "${mins}m"
+                background = if (sel) gradientBg("#0284C7", "#0EA5E9", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                setTextColor(if (sel) Color.WHITE else Color.parseColor(btnNeutralFg()))
+                layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
+                setOnClickListener { requireParentPin { store.iqamaDelayMinutes = mins; renderTab(4) } }
+            })
+        }
+        ctrlCard.addView(iqRow)
+
+        // Qibla Compass + Hijri Calendar quick tools row
+        val islamicToolsRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }
+        }
+        islamicToolsRow.addView(Button(this).apply {
+            text = if (store.isArabic) "🧭 بوصلة القبلة" else "🧭 Qibla Compass"
+            isAllCaps = false; textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(Color.WHITE)
+            background = gradientBg("#059669", "#10B981", 12)
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f).apply { marginEnd = dp(6) }
+            setOnClickListener { openQiblaCompassDialog() }
+        })
+        islamicToolsRow.addView(Button(this).apply {
+            text = if (store.isArabic) "🗓️ التقويم الهجري" else "🗓️ Hijri Calendar"
+            isAllCaps = false; textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(Color.WHITE)
+            background = gradientBg("#0284C7", "#0EA5E9", 12)
+            layoutParams = LinearLayout.LayoutParams(0, dp(42), 1f)
+            setOnClickListener { openHijriCalendarDialog() }
+        })
+        ctrlCard.addView(islamicToolsRow)
+
+        ctrlCard.addView(makeBtn(if (store.isArabic) "📢 تجربة صوت الإقامة (الشيخ الحصري)" else "📢 Test Iqama Audio (El-Hosary)", "#059669", "#10B981") {
+            try {
+                testPlayer?.stop(); testPlayer?.release()
+                testPlayer = MediaPlayer.create(this, R.raw.iqama)
+                testPlayer?.setOnCompletionListener { prayerWaveView?.isPlayingWave = false }
+                testPlayer?.start()
+                prayerWaveView?.isPlayingWave = true
+            } catch (_: Exception) { }
+        })
         ctrlCard.addView(makeBtn(s("test_adhan"), "#D97706", "#F59E0B") {
             try {
                 testPlayer?.stop(); testPlayer?.release()
@@ -928,6 +1052,187 @@ class MainActivity : AppCompatActivity() {
         }
         scroll.addView(col)
         return scroll
+    }
+
+    private fun openQiblaCompassDialog() {
+        val ar = store.isArabic
+        val qiblaBearing = PrayerCalculator.calculateQiblaBearing(store.latitude, store.longitude)
+        val box = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
+            setPadding(dp(16), dp(14), dp(16), dp(14))
+        }
+        val statusTv = TextView(this).apply {
+            text = if (ar) "وجّه الهاتف بشكل أفقي حتى يشير السهم للأعلى نحو القبلة" else "Hold phone flat and align the arrow upward toward Makkah"
+            textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol()); gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(8))
+        }
+        val compass = QiblaCompassView(this).apply {
+            qiblaBearingDeg = qiblaBearing
+            layoutParams = LinearLayout.LayoutParams(dp(260), dp(260))
+        }
+        val degTv = TextView(this).apply {
+            text = if (ar) "زاوية القبلة: ${qiblaBearing.toInt()}°" else "Qibla Bearing: ${qiblaBearing.toInt()}°"
+            textSize = 13.5f; setTypeface(null, Typeface.BOLD); setTextColor(textPrimary()); gravity = Gravity.CENTER
+            setPadding(0, dp(10), 0, 0)
+        }
+        box.addView(statusTv); box.addView(compass); box.addView(degTv)
+
+        val sm = getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        val rotSensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
+        val accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
+        val magSensor = sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
+        val gravity = FloatArray(3)
+        val geomag = FloatArray(3)
+        var hasGrav = false; var hasMag = false
+
+        val listener = object : SensorEventListener {
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            override fun onSensorChanged(event: SensorEvent) {
+                var az: Float? = null
+                if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
+                    val rm = FloatArray(9); val ori = FloatArray(3)
+                    SensorManager.getRotationMatrixFromVector(rm, event.values)
+                    SensorManager.getOrientation(rm, ori)
+                    az = ((Math.toDegrees(ori[0].toDouble()) + 360.0) % 360.0).toFloat()
+                } else if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+                    System.arraycopy(event.values, 0, gravity, 0, 3); hasGrav = true
+                } else if (event.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) {
+                    System.arraycopy(event.values, 0, geomag, 0, 3); hasMag = true
+                }
+                if (az == null && hasGrav && hasMag) {
+                    val rm = FloatArray(9); val ori = FloatArray(3)
+                    if (SensorManager.getRotationMatrix(rm, null, gravity, geomag)) {
+                        SensorManager.getOrientation(rm, ori)
+                        az = ((Math.toDegrees(ori[0].toDouble()) + 360.0) % 360.0).toFloat()
+                    }
+                }
+                az?.let { deg ->
+                    compass.azimuthDeg = deg
+                    if (compass.isAlignedToQibla()) {
+                        statusTv.text = if (ar) "✅ ممتاز! أنت متجه الآن نحو القبلة" else "✅ Aligned with Qibla!"
+                        statusTv.setTextColor(Color.parseColor("#10B981"))
+                    } else {
+                        statusTv.text = if (ar) "أدِر الهاتف حتى يصبح السهم أخضر للأعلى" else "Rotate phone until arrow turns green pointing up"
+                        statusTv.setTextColor(accentCol())
+                    }
+                    degTv.text = if (ar) "اتجاهك: ${deg.toInt()}°  •  القبلة: ${qiblaBearing.toInt()}°" else "Heading: ${deg.toInt()}° • Qibla: ${qiblaBearing.toInt()}°"
+                }
+            }
+        }
+
+        val dlg = AlertDialog.Builder(this)
+            .setTitle(if (ar) "🧭 بوصلة القبلة" else "🧭 Qibla Compass")
+            .setView(box)
+            .setPositiveButton(if (ar) "إغلاق" else "Close", null)
+            .create()
+        dlg.setOnDismissListener { sm.unregisterListener(listener) }
+        if (rotSensor != null) {
+            sm.registerListener(listener, rotSensor, SensorManager.SENSOR_DELAY_UI)
+        } else if (accelSensor != null && magSensor != null) {
+            sm.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_UI)
+            sm.registerListener(listener, magSensor, SensorManager.SENSOR_DELAY_UI)
+        } else {
+            statusTv.text = if (ar) "⚠️ هذا الهاتف لا يحتوي على حساس بوصلة — زاوية القبلة ${qiblaBearing.toInt()}° (جنوب شرق)" else "No compass sensor — Qibla is ${qiblaBearing.toInt()}°"
+        }
+        dlg.show()
+    }
+
+    private fun openHijriCalendarDialog() {
+        val ar = store.isArabic
+        val nowH = IslamicCalendar()
+        var viewYear = nowH.get(IslamicCalendar.YEAR)
+        var viewMonth = nowH.get(IslamicCalendar.MONTH)
+        val todayY = viewYear; val todayM = viewMonth; val todayD = nowH.get(IslamicCalendar.DAY_OF_MONTH)
+        val monthsAr = arrayOf("محرم", "صفر", "ربيع الأول", "ربيع الثاني", "جمادى الأولى", "جمادى الثاني", "رجب", "شعبان", "رمضان", "شوال", "ذو القعدة", "ذو الحجة")
+        val monthsEn = arrayOf("Muharram", "Safar", "Rabi I", "Rabi II", "Jumada I", "Jumada II", "Rajab", "Sha'ban", "Ramadan", "Shawwal", "Dhul Qi'dah", "Dhul Hijjah")
+        val wkAr = arrayOf("سبت", "أحد", "إثن", "ثلا", "أرب", "خمي", "جمع")
+        val wkEn = arrayOf("Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri")
+
+        val box = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(12)) }
+        val navRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+        val prevBtn = Button(this).apply { text = "◀"; layoutParams = LinearLayout.LayoutParams(dp(44), dp(38)) }
+        val monthTitle = TextView(this).apply {
+            textSize = 16f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol()); gravity = Gravity.CENTER
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+        }
+        val nextBtn = Button(this).apply { text = "▶"; layoutParams = LinearLayout.LayoutParams(dp(44), dp(38)) }
+        navRow.addView(prevBtn); navRow.addView(monthTitle); navRow.addView(nextBtn)
+
+        val gridContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
+        val (ramDays, ramCurDay) = PrayerCalculator.getRamadanCountdown()
+        val footerTv = TextView(this).apply {
+            text = if (ramCurDay > 0) (if (ar) "🌙 نحن في اليوم $ramCurDay من شهر رمضان المبارك" else "🌙 Day $ramCurDay of Ramadan")
+            else (if (ar) "🌙 باقي $ramDays يومًا على شهر رمضان المبارك" else "🌙 $ramDays days until Ramadan")
+            textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#10B981")); gravity = Gravity.CENTER
+        }
+
+        fun renderMonth() {
+            val mName = if (ar) monthsAr[viewMonth.coerceIn(0, 11)] else monthsEn[viewMonth.coerceIn(0, 11)]
+            monthTitle.text = if (ar) "$mName $viewYear هـ" else "$mName $viewYear AH"
+            gridContainer.removeAllViews()
+
+            val wkRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+            val wkNames = if (ar) wkAr else wkEn
+            for (w in wkNames) {
+                wkRow.addView(TextView(this).apply {
+                    text = w; textSize = 11.5f; setTypeface(null, Typeface.BOLD); setTextColor(textMuted()); gravity = Gravity.CENTER
+                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                })
+            }
+            gridContainer.addView(wkRow)
+
+            val firstDay = IslamicCalendar(viewYear, viewMonth, 1)
+            val daysInMonth = firstDay.getActualMaximum(IslamicCalendar.DAY_OF_MONTH)
+            val dow = firstDay.get(IslamicCalendar.DAY_OF_WEEK) // Sat=7, Sun=1..Fri=6
+            val startCol = if (dow == Calendar.SATURDAY) 0 else dow // Sat->0, Sun->1 .. Fri->6
+
+            var d = 1
+            for (r in 0 until 6) {
+                if (d > daysInMonth) break
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, dp(4), 0, dp(4)) }
+                for (c in 0 until 7) {
+                    val cell = TextView(this).apply {
+                        gravity = Gravity.CENTER; textSize = 13f; setPadding(0, dp(6), 0, dp(6))
+                        layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+                    }
+                    if ((r == 0 && c < startCol) || d > daysInMonth) {
+                        cell.text = ""
+                    } else {
+                        cell.text = d.toString()
+                        val isToday = (viewYear == todayY && viewMonth == todayM && d == todayD)
+                        if (isToday) {
+                            cell.background = gradientBg("#059669", "#10B981", 10)
+                            cell.setTextColor(Color.WHITE)
+                            cell.setTypeface(null, Typeface.BOLD)
+                        } else {
+                            cell.setTextColor(textPrimary())
+                        }
+                        d++
+                    }
+                    row.addView(cell)
+                }
+                gridContainer.addView(row)
+            }
+        }
+
+        prevBtn.setOnClickListener {
+            viewMonth--
+            if (viewMonth < 0) { viewMonth = 11; viewYear-- }
+            renderMonth()
+        }
+        nextBtn.setOnClickListener {
+            viewMonth++
+            if (viewMonth > 11) { viewMonth = 0; viewYear++ }
+            renderMonth()
+        }
+        renderMonth()
+        box.addView(navRow); box.addView(gridContainer); box.addView(footerTv)
+
+        AlertDialog.Builder(this)
+            .setTitle(if (ar) "🗓️ التقويم الهجري" else "🗓️ Hijri Calendar")
+            .setView(box)
+            .setPositiveButton(if (ar) "إغلاق" else "Close", null)
+            .show()
     }
 
     private fun speakTasbeeh(text: String) {
@@ -1368,8 +1673,8 @@ class MainActivity : AppCompatActivity() {
 
         // 1. Category Selector Bar (5 Categories!)
         val catCard = makeCard(if (ar) "📿 الأذكار والتسبيح" else "📿 Adhkar & Tasbeeh")
-        val catNames = if (ar) listOf("📿 يومية", "☀️ الصباح (28)", "🌇 المساء (28)", "🌙 النوم (12)", "🌅 الاستيقاظ (5)")
-        else listOf("📿 Daily", "☀️ Morning (28)", "🌇 Evening (28)", "🌙 Sleep (12)", "🌅 Waking (5)")
+        val catNames = if (ar) listOf("📿 يومية", "☀️ الصباح (28)", "🌇 المساء (28)", "🌙 النوم (12)", "🌅 الاستيقاظ (5)", "🏰 حصن المسلم (16)")
+        else listOf("📿 Daily", "☀️ Morning (28)", "🌇 Evening (28)", "🌙 Sleep (12)", "🌅 Waking (5)", "🏰 Hisn Muslim (16)")
 
         fun makeCatBtn(idx: Int): Button {
             val sel = (adhkarCategory == idx)
@@ -1389,7 +1694,7 @@ class MainActivity : AppCompatActivity() {
         val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dp(6)) }
         row1.addView(makeCatBtn(0)); row1.addView(makeCatBtn(1)); row1.addView(makeCatBtn(2))
         val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dp(4)) }
-        row2.addView(makeCatBtn(3)); row2.addView(makeCatBtn(4))
+        row2.addView(makeCatBtn(3)); row2.addView(makeCatBtn(4)); row2.addView(makeCatBtn(5))
         catCard.addView(row1)
         catCard.addView(row2)
 
@@ -1398,6 +1703,7 @@ class MainActivity : AppCompatActivity() {
             2 -> AdhkarData.eveningAdhkar
             3 -> AdhkarData.sleepAdhkar
             4 -> AdhkarData.wakingAdhkar
+            5 -> AdhkarData.hisnSimpleAdhkar
             else -> AdhkarData.tasbeehLibrary
         }
         val selIdx = if (adhkarCategory == 0) store.selectedTasbeehIndex.coerceIn(0, list.lastIndex) else adhkarCatIdx.coerceIn(0, list.lastIndex)
@@ -2017,7 +2323,7 @@ class MainActivity : AppCompatActivity() {
                                 val msg = if (res.error != null) {
                                     if (store.isArabic) "تعذر التحقق من التحديث: ${res.error}" else "Update check failed: ${res.error}"
                                 } else {
-                                    if (store.isArabic) "أنت على أحدث إصدار!" else "You are up to date!"
+                                    if (store.isArabic) "أنت على أحدث إصدار (الحالي: v${UpdateManager.getCurrentVersionName(this)} — الأحدث على السيرفر: ${res.latestRemoteTag ?: "لا يوجد Release"})" else "Up to date (v${UpdateManager.getCurrentVersionName(this)}, latest: ${res.latestRemoteTag ?: "none"})"
                                 }
                                 Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
                             } else AlertDialog.Builder(this)

@@ -17,6 +17,7 @@ import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.text.InputType
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.*
@@ -152,8 +153,17 @@ class SystemOverlayBlocker(
             else -> intArrayOf(Color.parseColor("#CC2A0C12"), Color.parseColor("#DD180A0E"), Color.parseColor("#EE070B14"))
         }
 
-        val scroll = ScrollView(context).apply {
+        val scroll = object : ScrollView(context) {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+                if (event.keyCode == KeyEvent.KEYCODE_VOLUME_UP || event.keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                    stopAdhan()
+                    return true
+                }
+                return super.dispatchKeyEvent(event)
+            }
+        }.apply {
             isFillViewport = true
+            isFocusableInTouchMode = true
             layoutDirection = if (ar) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
             background = GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, bgColors)
         }
@@ -224,7 +234,7 @@ class SystemOverlayBlocker(
             root.addView(waveView)
 
             val btnMute = Button(context).apply {
-                text = Strings.get(ar, "mute_adhan")
+                text = if (ar) "🔇 كتم صوت الإقامة (أو اضغط زر الصوت/الباور)" else "🔇 Mute Iqama (or press Power/Vol)"
                 setBackgroundColor(Color.parseColor("#44334155"))
                 setTextColor(Color.WHITE)
                 isAllCaps = false
@@ -469,7 +479,7 @@ class SystemOverlayBlocker(
             wm.addView(scroll, params)
             overlayView = scroll
             if (isPrayer) {
-                if (store.adhanAudioEnabled) playAdhan()
+                if (store.iqamaAudioEnabled) playAdhan()
                 if (endMillis > System.currentTimeMillis()) handler.post(countdownRunnable)
             }
         } catch (_: Exception) {
@@ -492,14 +502,14 @@ class SystemOverlayBlocker(
     private fun playAdhan() {
         try {
             stopAdhan()
-            mediaPlayer = MediaPlayer.create(context, R.raw.adhan)
+            mediaPlayer = MediaPlayer.create(context, R.raw.iqama)
             mediaPlayer?.start()
             waveView?.isPlayingWave = true
             mediaPlayer?.setOnCompletionListener { waveView?.isPlayingWave = false }
         } catch (_: Exception) { }
     }
 
-    private fun stopAdhan() {
+    fun stopAdhan() {
         try {
             mediaPlayer?.stop(); mediaPlayer?.release(); mediaPlayer = null
             waveView?.isPlayingWave = false

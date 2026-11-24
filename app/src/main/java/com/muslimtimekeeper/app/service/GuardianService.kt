@@ -9,6 +9,9 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.media.MediaPlayer
 import android.media.AudioManager
 import android.net.TrafficStats
 import android.net.VpnService
@@ -43,6 +46,37 @@ class GuardianService : Service() {
     private var lastActivePrayerKey: String = ""
     private var tickCounter = 0
     private val sentAlerts = HashSet<String>()
+    private var adhanPlayer: MediaPlayer? = null
+    private var lastAdhanPlayedKey: String = ""
+
+    private val hwSilenceReceiver = object : BroadcastReceiver() {
+        override fun onReceive(ctx: Context?, intent: Intent?) {
+            val act = intent?.action ?: return
+            if (act == Intent.ACTION_SCREEN_OFF || act == "android.media.VOLUME_CHANGED_ACTION") {
+                // Power or Volume pressed -> silence Adhan OR Iqama immediately (Iqama screen stays locked!)
+                stopAdhanAudio()
+                overlay.stopAdhan()
+            }
+        }
+    }
+
+    private fun playAdhanOnly(prayerName: String) {
+        if (!store.adhanAudioEnabled) return
+        try {
+            stopAdhanAudio()
+            adhanPlayer = MediaPlayer.create(this, R.raw.adhan)
+            adhanPlayer?.setOnCompletionListener { stopAdhanAudio() }
+            adhanPlayer?.start()
+        } catch (_: Exception) { }
+    }
+
+    private fun stopAdhanAudio() {
+        try {
+            adhanPlayer?.stop()
+            adhanPlayer?.release()
+        } catch (_: Exception) { }
+        adhanPlayer = null
+    }
 
     private val tickRunnable = object : Runnable {
         override fun run() {
@@ -77,6 +111,17 @@ class GuardianService : Service() {
                 }
             }
         )
+        try {
+            val f = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction("android.media.VOLUME_CHANGED_ACTION")
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                registerReceiver(hwSilenceReceiver, f, Context.RECEIVER_EXPORTED)
+            } else {
+                registerReceiver(hwSilenceReceiver, f)
+            }
+        } catch (_: Exception) { }
         startForeground(101, buildNotification())
         handler.post(tickRunnable)
     }
@@ -100,12 +145,18 @@ class GuardianService : Service() {
                 bedtimeUnlockedUntil = System.currentTimeMillis() + (60 * 60_000L)
                 overlay.hide()
             }
+            "ACTION_STOP_ADHAN" -> {
+                stopAdhanAudio()
+                overlay.stopAdhan()
+            }
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
         handler.removeCallbacks(tickRunnable)
+        stopAdhanAudio()
+        try { unregisterReceiver(hwSilenceReceiver) } catch (_: Exception) { }
         restoreRingerMode()
         overlay.hide()
         super.onDestroy()
@@ -438,9 +489,29 @@ class GuardianService : Service() {
             store.recordDayStats(store.todayStr(), store.phoneSecondsUsedToday, store.dataUsedTodayBytes)
         }
 
-        // Check active prayer even when screen is off so Mosque Auto-Silent works in pocket!
+        // 1. At Adhan time: play Adhan audio + alert WITHOUT locking the screen (Power/Volume silences it!)
+        val activeAdhan = PrayerCalculator.getActiveAdhan(store.latitude, store.longitude, store.timezoneOffset)
+        if (activeAdhan != null) {
+            val adhanKey = "${store.todayStr()}_adhan_${activeAdhan.name}"
+            if (lastAdhanPlayedKey != adhanKey) {
+                lastAdhanPlayedKey = adhanKey
+                playAdhanOnly(activeAdhan.name)
+                val pAr = PrayerCalculator.localizedName(activeAdhan.name, store.isArabic)
+                sendPreAlert(
+                    "adhan_${activeAdhan.name}",
+                    if (store.isArabic) "🕌 حان الآن موعد أذان $pAr (اضغط زر الباور أو الصوت لكتم الأذان — الإقامة بعد ${store.iqamaDelayMinutes} دقيقة)"
+                    else "🕌 Adhan time for $pAr (Press Power/Volume to mute — Iqama in ${store.iqamaDelayMinutes}m)",
+                    vibrate = false
+                )
+            }
+        }
+
+        // 2. At Iqama time (Adhan + iqamaDelayMinutes): Lock screen + play El-Hosary Iqama + Mosque Auto-Silent!
         val activePrayer = if (store.prayerLockEnabled && System.currentTimeMillis() >= prayerUnlockedUntil) {
-            PrayerCalculator.getActivePrayer(store.latitude, store.longitude, store.timezoneOffset, store.prayerDurationMinutes)
+            PrayerCalculator.getActivePrayer(
+                store.latitude, store.longitude, store.timezoneOffset,
+                store.prayerDurationMinutes, store.iqamaDelayMinutes
+            )
         } else null
 
         if (activePrayer != null) {

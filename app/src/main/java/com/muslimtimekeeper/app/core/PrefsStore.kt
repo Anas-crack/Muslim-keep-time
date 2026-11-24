@@ -160,6 +160,14 @@ class PrefsStore(context: Context) {
         get() = prefs.getBoolean("prayer_lock_enabled", true)
         set(v) = prefs.edit().putBoolean("prayer_lock_enabled", v).apply()
 
+    var iqamaAudioEnabled: Boolean
+        get() = prefs.getBoolean("iqama_audio_enabled", true)
+        set(v) = prefs.edit().putBoolean("iqama_audio_enabled", v).apply()
+
+    var iqamaDelayMinutes: Int
+        get() = prefs.getInt("iqama_delay_minutes", 15)
+        set(v) = prefs.edit().putInt("iqama_delay_minutes", v.coerceIn(5, 30)).apply()
+
     var adhanAudioEnabled: Boolean
         get() = prefs.getBoolean("adhan_audio_enabled", true)
         set(v) = prefs.edit().putBoolean("adhan_audio_enabled", v).apply()

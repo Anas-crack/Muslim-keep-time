@@ -16,6 +16,7 @@ import android.os.Looper
 import android.speech.tts.TextToSpeech
 import android.text.InputType
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
 import android.view.WindowManager
 import android.widget.*
@@ -432,7 +433,7 @@ class LockOverlayActivity : AppCompatActivity() {
     private fun playAdhan() {
         try {
             stopAdhan()
-            mediaPlayer = MediaPlayer.create(this, R.raw.adhan)
+            mediaPlayer = MediaPlayer.create(this, R.raw.iqama)
             mediaPlayer?.start()
             waveView?.isPlayingWave = true
             mediaPlayer?.setOnCompletionListener { waveView?.isPlayingWave = false }
@@ -468,5 +469,13 @@ class LockOverlayActivity : AppCompatActivity() {
                 else vib.vibrate(18L)
             }
         } catch (_: Exception) { }
+    }
+
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
+        if (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN) {
+            try { mediaPlayer?.stop(); mediaPlayer?.release(); mediaPlayer = null; waveView?.isPlayingWave = false } catch (_: Exception) { }
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
     }
 }

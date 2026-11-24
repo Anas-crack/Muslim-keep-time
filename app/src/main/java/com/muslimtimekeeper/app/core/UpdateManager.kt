@@ -21,40 +21,47 @@ data class ReleaseInfo(
 
 data class UpdateCheckResult(
     val release: ReleaseInfo?,
-    val error: String? = null
+    val error: String? = null,
+    val latestRemoteTag: String? = null
 )
 
 object UpdateManager {
     fun getCurrentVersionName(context: Context): String {
         return try {
             val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            pInfo.versionName ?: "1.0.0"
+            pInfo.versionName ?: "1.0"
         } catch (_: Exception) {
-            "1.0.0"
+            "1.0"
         }
     }
 
     private fun extractVersionNums(tag: String): List<Int> {
-        val m = Regex("\\d+(?:\\.\\d+)*").find(tag) ?: return listOf(0)
+        val m = Regex("\d+(?:\.\d+)*").find(tag) ?: return listOf(0)
         return m.value.split(".").map { it.toIntOrNull() ?: 0 }
     }
 
-    private fun isNewerVersion(remoteTag: String, current: String): Boolean {
-        val rParts = extractVersionNums(remoteTag)
-        val cParts = extractVersionNums(current)
-        val len = maxOf(rParts.size, cParts.size)
+    private fun compareVersions(a: String, b: String): Int {
+        val aParts = extractVersionNums(a)
+        val bParts = extractVersionNums(b)
+        val len = maxOf(aParts.size, bParts.size)
         for (i in 0 until len) {
-            val r = rParts.getOrElse(i) { 0 }
-            val c = cParts.getOrElse(i) { 0 }
-            if (r > c) return true
-            if (r < c) return false
+            val av = aParts.getOrElse(i) { 0 }
+            val bv = bParts.getOrElse(i) { 0 }
+            if (av != bv) return av.compareTo(bv)
         }
-        return false
+        return 0
     }
 
-    private fun parseReleaseJson(json: JSONObject, currentVersion: String): ReleaseInfo? {
-        val tag = json.optString("tag_name", "").ifEmpty { json.optString("name", "") }
-        if (tag.isEmpty() || !isNewerVersion(tag, currentVersion)) return null
+    private fun extractCandidate(json: JSONObject): ReleaseInfo? {
+        if (json.optBoolean("draft", false)) return null
+        val tagName = json.optString("tag_name", "").trim()
+        val relName = json.optString("name", "").trim()
+        val bestTag = when {
+            tagName.isNotEmpty() && extractVersionNums(tagName).any { it > 0 } -> tagName
+            relName.isNotEmpty() && extractVersionNums(relName).any { it > 0 } -> relName
+            else -> tagName.ifEmpty { relName }
+        }
+        if (bestTag.isEmpty()) return null
         val assets = json.optJSONArray("assets") ?: return null
         var apkUrl = ""
         for (i in 0 until assets.length()) {
@@ -66,7 +73,7 @@ object UpdateManager {
             }
         }
         if (apkUrl.isEmpty()) return null
-        return ReleaseInfo(tag, apkUrl, json.optString("body", ""))
+        return ReleaseInfo(bestTag, apkUrl, json.optString("body", ""))
     }
 
     private fun fetchJsonText(urlStr: String): Pair<Int, String?> {
@@ -75,8 +82,10 @@ object UpdateManager {
             conn = (URL(urlStr).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 instanceFollowRedirects = true
+                useCaches = false
                 setRequestProperty("Accept", "application/vnd.github+json")
-                setRequestProperty("User-Agent", "MuslimTimeKeeper-Android/2.0.4")
+                setRequestProperty("Cache-Control", "no-cache")
+                setRequestProperty("User-Agent", "MuslimTimeKeeper-Android/3.0")
                 connectTimeout = 15000
                 readTimeout = 20000
             }
@@ -97,33 +106,42 @@ object UpdateManager {
             .trim('/')
         if (!cleanRepo.contains("/")) return UpdateCheckResult(null, "Invalid repository name")
         val current = getCurrentVersionName(context)
+        val candidates = mutableListOf<ReleaseInfo>()
 
-        // 1. Try /releases/latest
-        val (code1, body1) = fetchJsonText("https://api.github.com/repos/$cleanRepo/releases/latest")
-        if (code1 == 200 && body1 != null) {
+        // Fetch full releases list (catches all releases & pre-releases regardless of latest flag)
+        val (codeList, bodyList) = fetchJsonText("https://api.github.com/repos/$cleanRepo/releases?per_page=20")
+        if (codeList == 200 && bodyList != null) {
             try {
-                val rel = parseReleaseJson(JSONObject(body1), current)
-                if (rel != null) return UpdateCheckResult(rel, null)
+                val arr = JSONArray(bodyList)
+                for (i in 0 until arr.length()) {
+                    extractCandidate(arr.getJSONObject(i))?.let { candidates.add(it) }
+                }
             } catch (_: Exception) { }
         }
 
-        // 2. Fallback to /releases list (catches pre-releases or multiple releases!)
-        val (code2, body2) = fetchJsonText("https://api.github.com/repos/$cleanRepo/releases?per_page=10")
-        if (code2 == 200 && body2 != null) {
-            try {
-                val arr = JSONArray(body2)
-                for (i in 0 until arr.length()) {
-                    val obj = arr.getJSONObject(i)
-                    if (obj.optBoolean("draft", false)) continue
-                    val rel = parseReleaseJson(obj, current)
-                    if (rel != null) return UpdateCheckResult(rel, null)
-                }
-                return UpdateCheckResult(null, null) // Truly up-to-date
-            } catch (e: Exception) {
-                return UpdateCheckResult(null, "Parse error: ${e.message}")
+        // Also check /releases/latest as backup
+        if (candidates.isEmpty()) {
+            val (code1, body1) = fetchJsonText("https://api.github.com/repos/$cleanRepo/releases/latest")
+            if (code1 == 200 && body1 != null) {
+                try {
+                    extractCandidate(JSONObject(body1))?.let { candidates.add(it) }
+                } catch (_: Exception) { }
+            } else if (codeList != 200) {
+                return UpdateCheckResult(null, if (codeList == -1) "No internet connection" else "GitHub HTTP $codeList")
             }
         }
-        return UpdateCheckResult(null, if (code1 == -1) "No internet connection" else "GitHub HTTP $code1 / $code2")
+
+        if (candidates.isEmpty()) {
+            return UpdateCheckResult(null, null, null)
+        }
+
+        // Pick the highest semantic version among all valid APK releases
+        val highest = candidates.maxWithOrNull { a, b -> compareVersions(a.versionTag, b.versionTag) }!!
+        return if (compareVersions(highest.versionTag, current) > 0) {
+            UpdateCheckResult(highest, null, highest.versionTag)
+        } else {
+            UpdateCheckResult(null, null, highest.versionTag)
+        }
     }
 
     fun checkLatestRelease(context: Context, ownerRepo: String): ReleaseInfo? {
@@ -135,7 +153,8 @@ object UpdateManager {
         for (hop in 0..6) {
             val conn = (URL(currentUrl).openConnection() as HttpURLConnection).apply {
                 instanceFollowRedirects = false
-                setRequestProperty("User-Agent", "MuslimTimeKeeper-Android/2.0.4")
+                useCaches = false
+                setRequestProperty("User-Agent", "MuslimTimeKeeper-Android/3.0")
                 setRequestProperty("Accept", "application/octet-stream, */*")
                 connectTimeout = 20000
                 readTimeout = 120000

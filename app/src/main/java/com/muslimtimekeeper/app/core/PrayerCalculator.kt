@@ -208,17 +208,64 @@ object PrayerCalculator {
         return if (isAr) raw.replace("AM", "ص").replace("PM", "م") else raw
     }
 
-    fun getActivePrayer(lat: Double, lon: Double, tz: Double, durationMin: Int): PrayerWindow? {
+    fun getActiveAdhan(lat: Double, lon: Double, tz: Double): PrayerWindow? {
         val now = System.currentTimeMillis()
-        val durMs = durationMin * 60_000L
         for ((name, cal) in calculateToday(lat, lon, tz)) {
             val start = cal.timeInMillis
+            val end = start + 60_000L
+            if (now in start until end) {
+                return PrayerWindow(name, start, end)
+            }
+        }
+        return null
+    }
+
+    /**
+     * Prayer lock window begins at IQAMA time (Adhan + iqamaDelayMin) and lasts durationMin minutes.
+     */
+    fun getActivePrayer(lat: Double, lon: Double, tz: Double, durationMin: Int, iqamaDelayMin: Int = 15): PrayerWindow? {
+        val now = System.currentTimeMillis()
+        val iqamaOffsetMs = iqamaDelayMin.coerceIn(0, 45) * 60_000L
+        val durMs = durationMin * 60_000L
+        for ((name, cal) in calculateToday(lat, lon, tz)) {
+            val start = cal.timeInMillis + iqamaOffsetMs
             val end = start + durMs
             if (now in start until end) {
                 return PrayerWindow(name, start, end)
             }
         }
         return null
+    }
+
+    fun calculateQiblaBearing(lat: Double, lon: Double): Float {
+        val kaabaLat = dtr(21.422487)
+        val kaabaLon = dtr(39.826206)
+        val uLat = dtr(lat)
+        val dLon = kaabaLon - dtr(lon)
+        val y = sin(dLon) * cos(kaabaLat)
+        val x = cos(uLat) * sin(kaabaLat) - sin(uLat) * cos(kaabaLat) * cos(dLon)
+        return ((rtd(atan2(y, x)) + 360.0) % 360.0).toFloat()
+    }
+
+    /**
+     * Returns Pair(daysUntilRamadan, currentRamadanDay).
+     * If currently in Ramadan (Hijri month index 8), daysUntilRamadan = 0 and currentRamadanDay = 1..30.
+     */
+    fun getRamadanCountdown(): Pair<Int, Int> {
+        return try {
+            val now = IslamicCalendar()
+            val curMonth = now.get(IslamicCalendar.MONTH) // 0=Muharram .. 8=Ramadan
+            val curDay = now.get(IslamicCalendar.DAY_OF_MONTH)
+            val curYear = now.get(IslamicCalendar.YEAR)
+            if (curMonth == 8) return Pair(0, curDay)
+            val targetYear = if (curMonth < 8) curYear else curYear + 1
+            val target = IslamicCalendar(targetYear, 8, 1)
+            val diffMs = target.timeInMillis - now.timeInMillis
+            val days = ((diffMs + 86_399_999L) / 86_400_000L).toInt().coerceAtLeast(1)
+            Pair(days, 0)
+        } catch (_: Exception) {
+            Pair(0, 0)
+        }
     }
 
     fun getPrayerProgressWindow(lat: Double, lon: Double, tz: Double, isAr: Boolean): PrayerProgressInfo {
