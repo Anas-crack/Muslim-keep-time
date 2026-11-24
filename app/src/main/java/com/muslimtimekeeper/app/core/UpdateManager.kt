@@ -36,7 +36,7 @@ object UpdateManager {
     }
 
     private fun extractVersionNums(tag: String): List<Int> {
-        val m = Regex("\d+(?:\.\d+)*").find(tag) ?: return listOf(0)
+        val m = Regex("\\d+(?:\\.\\d+)*").find(tag) ?: return listOf(0)
         return m.value.split(".").map { it.toIntOrNull() ?: 0 }
     }
 
