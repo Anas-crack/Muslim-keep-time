@@ -1,11 +1,15 @@
 package com.muslimtimekeeper.app.ui
 
+import android.content.Context
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.media.MediaPlayer
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -444,5 +448,25 @@ class LockOverlayActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         handler.removeCallbacks(countdownRunnable); stopAdhan(); stopTts(); super.onDestroy()
+    }
+
+    private fun vibrateLockDhikr(completed: Boolean) {
+        try {
+            val vib: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            if (vib == null || !vib.hasVibrator()) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (completed) vib.vibrate(VibrationEffect.createWaveform(longArrayOf(0L, 120L, 65L, 150L), -1))
+                else vib.vibrate(VibrationEffect.createOneShot(18L, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                @Suppress("DEPRECATION")
+                if (completed) vib.vibrate(longArrayOf(0L, 120L, 65L, 150L), -1)
+                else vib.vibrate(18L)
+            }
+        } catch (_: Exception) { }
     }
 }

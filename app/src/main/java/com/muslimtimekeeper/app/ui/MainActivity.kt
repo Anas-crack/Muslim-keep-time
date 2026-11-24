@@ -17,6 +17,9 @@ import android.media.MediaPlayer
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
+import android.os.VibrationEffect
+import android.os.Vibrator
+import android.os.VibratorManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -112,6 +115,88 @@ class MainActivity : AppCompatActivity() {
         renderTab(0)
         uiHandler.post(liveClockRunnable)
         if (store.userName.isBlank()) promptUserName()
+    }
+
+    private var autoUpdateCheckedOnce = false
+
+    private fun vibrateDhikr(completed: Boolean) {
+        try {
+            val vib: Vibrator? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                (getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager)?.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
+            }
+            if (vib == null || !vib.hasVibrator()) return
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                if (completed) {
+                    // Distinct double-pulse vibration whenever any Dhikr finishes (even target == 1)
+                    vib.vibrate(VibrationEffect.createWaveform(longArrayOf(0L, 120L, 65L, 150L), -1))
+                } else {
+                    vib.vibrate(VibrationEffect.createOneShot(18L, VibrationEffect.DEFAULT_AMPLITUDE))
+                }
+            } else {
+                @Suppress("DEPRECATION")
+                if (completed) vib.vibrate(longArrayOf(0L, 120L, 65L, 150L), -1)
+                else vib.vibrate(18L)
+            }
+        } catch (_: Exception) { }
+    }
+
+    private fun launchApkUpdate(apkUrl: String) {
+        val ar = store.isArabic
+        if (UpdateManager.needsInstallPermission(this)) {
+            Toast.makeText(
+                this,
+                if (ar) "يرجى تفعيل إذن (تثبيت التطبيقات غير المعروفة) لـ حارس وقت المسلم ثم الضغط على تحديث مرة أخرى"
+                else "Please allow 'Install unknown apps' for Muslim Time Keeper, then tap Update again",
+                Toast.LENGTH_LONG
+            ).show()
+            UpdateManager.openInstallPermissionSettings(this)
+            return
+        }
+        Toast.makeText(
+            this,
+            if (ar) "جاري تحميل التحديث الآن، يرجى الانتظار..." else "Downloading update, please wait...",
+            Toast.LENGTH_LONG
+        ).show()
+        Thread {
+            val (ok, err) = UpdateManager.downloadAndInstallApk(this, apkUrl)
+            uiHandler.post {
+                if (!ok) {
+                    Toast.makeText(
+                        this,
+                        if (ar) "تعذر تحميل التحديث: ${err ?: "خطأ في الشبكة"}" else "Update failed: ${err ?: "Network error"}",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun autoCheckUpdateOnStart() {
+        if (autoUpdateCheckedOnce) return
+        autoUpdateCheckedOnce = true
+        val repo = store.updateRepo.ifBlank { "Anas-crack/Muslim-keep-time" }
+        Thread {
+            val res = UpdateManager.checkLatestReleaseDetailed(this, repo)
+            val rel = res.release ?: return@Thread
+            uiHandler.post {
+                if (isFinishing || isDestroyed) return@post
+                val ar = store.isArabic
+                AlertDialog.Builder(this)
+                    .setTitle(if (ar) "🚀 تحديث جديد متاح (${rel.versionTag})" else "🚀 New Update Available (${rel.versionTag})")
+                    .setMessage(
+                        if (ar) "يتوفر إصدار أحدث من حارس وقت المسلم (${rel.versionTag}).\nهل تريد تحميله وتثبيته الآن؟"
+                        else "A newer version (${rel.versionTag}) is available.\nDownload and install now?"
+                    )
+                    .setPositiveButton(if (ar) "تحديث الآن" else "Update Now") { _, _ ->
+                        launchApkUpdate(rel.apkDownloadUrl)
+                    }
+                    .setNegativeButton(if (ar) "لاحقاً" else "Later", null)
+                    .show()
+            }
+        }.start()
     }
 
     private fun promptUserName() {
@@ -1070,13 +1155,16 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        val instant = QuranData.getCachedPageInstant(this, curPage)
+        val targetPage = curPage
+        val instant = QuranData.getCachedPageInstant(this, targetPage)
         if (instant != null) {
             applyMushafResult(instant)
         } else {
             Thread {
-                val res = QuranData.loadMushafPage(this, curPage)
-                uiHandler.post { applyMushafResult(res) }
+                val res = QuranData.loadMushafPage(this, targetPage)
+                uiHandler.post {
+                    if (store.lastMushafPage == targetPage) applyMushafResult(res)
+                }
             }.start()
         }
 
@@ -1227,17 +1315,21 @@ class MainActivity : AppCompatActivity() {
                 countTv.text = "$tasbeehSessionCount / ${item.target}"
                 totalTv.text = if (ar) "إجمالي تسبيحاتك: ${store.totalTasbeehCount}" else "Total: ${store.totalTasbeehCount}"
                 if (tasbeehSessionCount >= item.target) {
+                    vibrateDhikr(true)
                     if (adhkarCategory > 0 && selIdx < list.lastIndex) {
                         adhkarCatIdx = selIdx + 1
                         tasbeehSessionCount = 0
                         renderTab(2)
                     } else {
+                        if (adhkarCategory == 0) tasbeehSessionCount = 0
                         Toast.makeText(
                             this@MainActivity,
                             if (ar) "ما شاء الله! أتممت الذكر بنجاح" else "MashaAllah! Completed!",
                             Toast.LENGTH_SHORT
                         ).show()
                     }
+                } else {
+                    vibrateDhikr(false)
                 }
             }
         }
@@ -1601,14 +1693,21 @@ class MainActivity : AppCompatActivity() {
                 .setPositiveButton(if (store.isArabic) "نعم، متابعة التحديث" else "Yes, Continue") { _, _ ->
                     Toast.makeText(this, if (store.isArabic) "جاري البحث..." else "Checking...", Toast.LENGTH_SHORT).show()
                     Thread {
-                        val rel = UpdateManager.checkLatestRelease(this, repo)
+                        val res = UpdateManager.checkLatestReleaseDetailed(this, repo)
                         uiHandler.post {
-                            if (rel == null) Toast.makeText(this, if (store.isArabic) "أنت على أحدث إصدار!" else "You are up to date!", Toast.LENGTH_SHORT).show()
-                            else AlertDialog.Builder(this)
+                            val rel = res.release
+                            if (rel == null) {
+                                val msg = if (res.error != null) {
+                                    if (store.isArabic) "تعذر التحقق من التحديث: ${res.error}" else "Update check failed: ${res.error}"
+                                } else {
+                                    if (store.isArabic) "أنت على أحدث إصدار!" else "You are up to date!"
+                                }
+                                Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
+                            } else AlertDialog.Builder(this)
                                 .setTitle(if (store.isArabic) "تحديث جديد (${rel.versionTag})" else "New Update (${rel.versionTag})")
                                 .setMessage(if (store.isArabic) "هل تريد تحميل وتثبيت التحديث الآن؟" else "Download and install now?")
                                 .setPositiveButton(if (store.isArabic) "تحديث الآن" else "Update Now") { _, _ ->
-                                    Thread { UpdateManager.downloadAndInstallApk(this, rel.apkDownloadUrl) }.start()
+                                    launchApkUpdate(rel.apkDownloadUrl)
                                 }.setNegativeButton(s("cancel"), null).show()
                         }
                     }.start()
