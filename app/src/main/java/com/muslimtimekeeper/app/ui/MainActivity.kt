@@ -15,6 +15,11 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.animation.ObjectAnimator
+import android.Manifest
+import android.app.NotificationManager
+import android.hardware.GeomagneticField
+import android.location.LocationManager
+import androidx.core.app.ActivityCompat
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
@@ -328,7 +333,7 @@ class MainActivity : AppCompatActivity() {
 
         // Animated Rotating Crescent Ramadan Countdown Strip (opens on launch, spins & folds automatically!)
         val arShell = store.isArabic
-        val (ramDays, ramCurDay) = PrayerCalculator.getRamadanCountdown()
+        val (ramDays, ramCurDay) = PrayerCalculator.getRamadanCountdown(store.hijriOffsetDays)
         val ramTextStr = when {
             ramCurDay > 0 -> if (arShell) "رمضان مبارك! اليوم $ramCurDay من شهر رمضان ✨" else "Ramadan Mubarak! Day $ramCurDay ✨"
             ramDays > 0 -> if (arShell) "باقي $ramDays يومًا على شهر رمضان المبارك ✨" else "$ramDays days remaining until Ramadan ✨"
@@ -963,6 +968,17 @@ class MainActivity : AppCompatActivity() {
             setOnCheckedChangeListener { _, c -> requireParentPin { store.iqamaAudioEnabled = c } }
         }
         ctrlCard.addView(swIqama)
+        val nmCheck = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (!nmCheck.isNotificationPolicyAccessGranted) {
+            ctrlCard.addView(makeBtn(
+                if (store.isArabic) "🔕 تفعيل صلاحية الصامت التلقائي وقت الصلاة" else "🔕 Grant Auto-Silent (DND) Permission",
+                "#D97706", "#F59E0B"
+            ) {
+                try {
+                    startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
+                } catch (_: Exception) { }
+            })
+        }
         ctrlCard.addView(TextView(this).apply {
             text = if (store.isArabic) "⏱️ موعد الإقامة بعد الأذان بـ ${store.iqamaDelayMinutes} دقيقة:" else "⏱️ Iqama delay after Adhan: ${store.iqamaDelayMinutes} min:"
             setTextColor(accentCol()); setTypeface(null, Typeface.BOLD); setPadding(0, dp(6), 0, dp(4))
@@ -1054,16 +1070,61 @@ class MainActivity : AppCompatActivity() {
         return scroll
     }
 
+    private fun tryUpdateLocationFromGps(): Boolean {
+        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!hasFine && !hasCoarse) return false
+        return try {
+            val lm = getSystemService(Context.LOCATION_SERVICE) as LocationManager
+            val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+            var best: android.location.Location? = null
+            for (p in providers) {
+                if (lm.isProviderEnabled(p)) {
+                    val loc = lm.getLastKnownLocation(p)
+                    if (loc != null && (best == null || loc.accuracy < best.accuracy)) best = loc
+                }
+            }
+            if (best != null) {
+                store.latitude = best.latitude
+                store.longitude = best.longitude
+                true
+            } else false
+        } catch (_: Exception) { false }
+    }
+
     private fun openQiblaCompassDialog() {
         val ar = store.isArabic
-        val qiblaBearing = PrayerCalculator.calculateQiblaBearing(store.latitude, store.longitude)
+        // Request Location permission so Qibla & Magnetic Declination use exact real coordinates!
+        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!hasFine) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                2026
+            )
+        }
+        val gpsUsed = tryUpdateLocationFromGps()
+
+        val lat = store.latitude
+        val lon = store.longitude
+        val qiblaBearing = PrayerCalculator.calculateQiblaBearing(lat, lon)
+        val magDeclination = try {
+            GeomagneticField(lat.toFloat(), lon.toFloat(), 0f, System.currentTimeMillis()).declination
+        } catch (_: Exception) { 4.8f }
+
         val box = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL
             setPadding(dp(16), dp(14), dp(16), dp(14))
         }
         val statusTv = TextView(this).apply {
-            text = if (ar) "وجّه الهاتف بشكل أفقي حتى يشير السهم للأعلى نحو القبلة" else "Hold phone flat and align the arrow upward toward Makkah"
+            text = if (ar) "ضع الهاتف أفقيًا تمامًا وأدره حتى يصبح السهم أخضر للأعلى" else "Hold phone flat and rotate until arrow turns green pointing up"
             textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol()); gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(6))
+        }
+        val accTv = TextView(this).apply {
+            text = if (ar) (if (gpsUsed) "📍 تم تحديد موقعك بدقة عبر GPS" else "📍 الموقع: إحداثيات المدينة المحفوظة")
+            else (if (gpsUsed) "📍 Exact GPS location active" else "📍 Using saved city coordinates")
+            textSize = 11.5f; setTextColor(textMuted()); gravity = Gravity.CENTER
             setPadding(0, 0, 0, dp(8))
         }
         val compass = QiblaCompassView(this).apply {
@@ -1071,78 +1132,109 @@ class MainActivity : AppCompatActivity() {
             layoutParams = LinearLayout.LayoutParams(dp(260), dp(260))
         }
         val degTv = TextView(this).apply {
-            text = if (ar) "زاوية القبلة: ${qiblaBearing.toInt()}°" else "Qibla Bearing: ${qiblaBearing.toInt()}°"
+            text = if (ar) "زاوية القبلة الحقيقية: ${qiblaBearing.toInt()}°" else "True Qibla Bearing: ${qiblaBearing.toInt()}°"
             textSize = 13.5f; setTypeface(null, Typeface.BOLD); setTextColor(textPrimary()); gravity = Gravity.CENTER
             setPadding(0, dp(10), 0, 0)
         }
-        box.addView(statusTv); box.addView(compass); box.addView(degTv)
+        box.addView(statusTv); box.addView(accTv); box.addView(compass); box.addView(degTv)
 
         val sm = getSystemService(Context.SENSOR_SERVICE) as SensorManager
-        val rotSensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR)
         val accelSensor = sm.getDefaultSensor(Sensor.TYPE_ACCELEROMETER)
         val magSensor = sm.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD)
         val gravity = FloatArray(3)
         val geomag = FloatArray(3)
-        var hasGrav = false; var hasMag = false
+        var hasGrav = false
+        var hasMag = false
+        var smoothAz: Float? = null
+        var lastAlignedVibrated = false
 
         val listener = object : SensorEventListener {
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+                if (sensor?.type == Sensor.TYPE_MAGNETIC_FIELD) {
+                    val calMsg = when (accuracy) {
+                        SensorManager.SENSOR_STATUS_ACCURACY_HIGH -> if (ar) "✅ دقة البوصلة: عالية جدًا" else "✅ Compass Accuracy: High"
+                        SensorManager.SENSOR_STATUS_ACCURACY_MEDIUM -> if (ar) "ℹ️ دقة البوصلة: متوسطة" else "ℹ️ Compass Accuracy: Medium"
+                        else -> if (ar) "⚠️ حرّك الهاتف على شكل ∞ في الهواء لمعايرة البوصلة" else "⚠️ Move phone in a figure-8 (∞) to calibrate"
+                    }
+                    accTv.text = calMsg
+                }
+            }
+
             override fun onSensorChanged(event: SensorEvent) {
-                var az: Float? = null
-                if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
-                    val rm = FloatArray(9); val ori = FloatArray(3)
-                    SensorManager.getRotationMatrixFromVector(rm, event.values)
-                    SensorManager.getOrientation(rm, ori)
-                    az = ((Math.toDegrees(ori[0].toDouble()) + 360.0) % 360.0).toFloat()
-                } else if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
-                    System.arraycopy(event.values, 0, gravity, 0, 3); hasGrav = true
-                } else if (event.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) {
-                    System.arraycopy(event.values, 0, geomag, 0, 3); hasMag = true
-                }
-                if (az == null && hasGrav && hasMag) {
-                    val rm = FloatArray(9); val ori = FloatArray(3)
-                    if (SensorManager.getRotationMatrix(rm, null, gravity, geomag)) {
-                        SensorManager.getOrientation(rm, ori)
-                        az = ((Math.toDegrees(ori[0].toDouble()) + 360.0) % 360.0).toFloat()
-                    }
-                }
-                az?.let { deg ->
-                    compass.azimuthDeg = deg
-                    if (compass.isAlignedToQibla()) {
-                        statusTv.text = if (ar) "✅ ممتاز! أنت متجه الآن نحو القبلة" else "✅ Aligned with Qibla!"
-                        statusTv.setTextColor(Color.parseColor("#10B981"))
+                val alphaRaw = 0.25f
+                if (event.sensor.type == Sensor.TYPE_ACCELEROMETER) {
+                    if (!hasGrav) {
+                        System.arraycopy(event.values, 0, gravity, 0, 3); hasGrav = true
                     } else {
-                        statusTv.text = if (ar) "أدِر الهاتف حتى يصبح السهم أخضر للأعلى" else "Rotate phone until arrow turns green pointing up"
-                        statusTv.setTextColor(accentCol())
+                        for (i in 0..2) gravity[i] += alphaRaw * (event.values[i] - gravity[i])
                     }
-                    degTv.text = if (ar) "اتجاهك: ${deg.toInt()}°  •  القبلة: ${qiblaBearing.toInt()}°" else "Heading: ${deg.toInt()}° • Qibla: ${qiblaBearing.toInt()}°"
+                } else if (event.sensor.type == Sensor.TYPE_MAGNETIC_FIELD) {
+                    if (!hasMag) {
+                        System.arraycopy(event.values, 0, geomag, 0, 3); hasMag = true
+                    } else {
+                        for (i in 0..2) geomag[i] += alphaRaw * (event.values[i] - geomag[i])
+                    }
                 }
+                if (!hasGrav || !hasMag) return
+                val rm = FloatArray(9)
+                val im = FloatArray(9)
+                if (!SensorManager.getRotationMatrix(rm, im, gravity, geomag)) return
+                val ori = FloatArray(3)
+                SensorManager.getOrientation(rm, ori)
+                // Convert magnetic azimuth -> TRUE NORTH using GeomagneticField declination!
+                val rawTrueAz = ((Math.toDegrees(ori[0].toDouble()).toFloat() + magDeclination + 360f) % 360f)
+
+                // Shortest-angle circular smoothing (zero 359->0 jump, zero lag!)
+                val cur = smoothAz
+                val nextAz = if (cur == null) {
+                    rawTrueAz
+                } else {
+                    var delta = rawTrueAz - cur
+                    if (delta > 180f) delta -= 360f
+                    if (delta < -180f) delta += 360f
+                    ((cur + 0.20f * delta) + 360f) % 360f
+                }
+                smoothAz = nextAz
+                compass.azimuthDeg = nextAz
+
+                val aligned = compass.isAlignedToQibla()
+                if (aligned) {
+                    statusTv.text = if (ar) "✅ ممتاز! أنت متجه الآن نحو القبلة بدقة" else "✅ Aligned with Qibla!"
+                    statusTv.setTextColor(Color.parseColor("#10B981"))
+                    if (!lastAlignedVibrated) {
+                        lastAlignedVibrated = true
+                        vibrateDhikr(false)
+                    }
+                } else {
+                    lastAlignedVibrated = false
+                    statusTv.text = if (ar) "أدِر الهاتف أفقيًا حتى يشير السهم الأخضر للأعلى" else "Rotate flat until green arrow points up"
+                    statusTv.setTextColor(accentCol())
+                }
+                degTv.text = if (ar) "اتجاهك الحقيقي: ${nextAz.toInt()}°  •  القبلة: ${qiblaBearing.toInt()}°" else "True Heading: ${nextAz.toInt()}° • Qibla: ${qiblaBearing.toInt()}°"
             }
         }
 
         val dlg = AlertDialog.Builder(this)
-            .setTitle(if (ar) "🧭 بوصلة القبلة" else "🧭 Qibla Compass")
+            .setTitle(if (ar) "🧭 بوصلة القبلة الدقيقة" else "🧭 Accurate Qibla Compass")
             .setView(box)
             .setPositiveButton(if (ar) "إغلاق" else "Close", null)
             .create()
         dlg.setOnDismissListener { sm.unregisterListener(listener) }
-        if (rotSensor != null) {
-            sm.registerListener(listener, rotSensor, SensorManager.SENSOR_DELAY_UI)
-        } else if (accelSensor != null && magSensor != null) {
-            sm.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_UI)
-            sm.registerListener(listener, magSensor, SensorManager.SENSOR_DELAY_UI)
+        if (accelSensor != null && magSensor != null) {
+            sm.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_GAME)
+            sm.registerListener(listener, magSensor, SensorManager.SENSOR_DELAY_GAME)
         } else {
-            statusTv.text = if (ar) "⚠️ هذا الهاتف لا يحتوي على حساس بوصلة — زاوية القبلة ${qiblaBearing.toInt()}° (جنوب شرق)" else "No compass sensor — Qibla is ${qiblaBearing.toInt()}°"
+            statusTv.text = if (ar) "⚠️ هذا الهاتف لا يحتوي على حساس بوصلة مغناطيسية — زاوية القبلة ${qiblaBearing.toInt()}° (جنوب شرق)" else "No magnetic compass sensor — Qibla is ${qiblaBearing.toInt()}°"
         }
         dlg.show()
     }
 
     private fun openHijriCalendarDialog() {
         val ar = store.isArabic
-        val nowH = IslamicCalendar()
+        var nowH = PrayerCalculator.getUmmAlQuraNow(store.hijriOffsetDays)
         var viewYear = nowH.get(IslamicCalendar.YEAR)
         var viewMonth = nowH.get(IslamicCalendar.MONTH)
-        val todayY = viewYear; val todayM = viewMonth; val todayD = nowH.get(IslamicCalendar.DAY_OF_MONTH)
+        var todayY = viewYear; var todayM = viewMonth; var todayD = nowH.get(IslamicCalendar.DAY_OF_MONTH)
         val monthsAr = arrayOf("محرم", "صفر", "ربيع الأول", "ربيع الثاني", "جمادى الأولى", "جمادى الثاني", "رجب", "شعبان", "رمضان", "شوال", "ذو القعدة", "ذو الحجة")
         val monthsEn = arrayOf("Muharram", "Safar", "Rabi I", "Rabi II", "Jumada I", "Jumada II", "Rajab", "Sha'ban", "Ramadan", "Shawwal", "Dhul Qi'dah", "Dhul Hijjah")
         val wkAr = arrayOf("سبت", "أحد", "إثن", "ثلا", "أرب", "خمي", "جمع")
@@ -1159,14 +1251,26 @@ class MainActivity : AppCompatActivity() {
         navRow.addView(prevBtn); navRow.addView(monthTitle); navRow.addView(nextBtn)
 
         val gridContainer = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(0, dp(8), 0, dp(8)) }
-        val (ramDays, ramCurDay) = PrayerCalculator.getRamadanCountdown()
         val footerTv = TextView(this).apply {
-            text = if (ramCurDay > 0) (if (ar) "🌙 نحن في اليوم $ramCurDay من شهر رمضان المبارك" else "🌙 Day $ramCurDay of Ramadan")
-            else (if (ar) "🌙 باقي $ramDays يومًا على شهر رمضان المبارك" else "🌙 $ramDays days until Ramadan")
             textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#10B981")); gravity = Gravity.CENTER
         }
 
+        // ±1 day fine-tuning row for local moon sighting
+        val adjRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER
+            setPadding(0, dp(8), 0, 0)
+        }
+        val btnMinus1 = Button(this).apply { text = if (ar) "-1 يوم" else "-1d"; isAllCaps = false; textSize = 11.5f; layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { marginEnd = dp(4) } }
+        val btnReset0 = Button(this).apply { text = if (ar) "أم القرى" else "Auto"; isAllCaps = false; textSize = 11.5f; layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { marginEnd = dp(4) } }
+        val btnPlus1 = Button(this).apply { text = if (ar) "+1 يوم" else "+1d"; isAllCaps = false; textSize = 11.5f; layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f) }
+        adjRow.addView(btnMinus1); adjRow.addView(btnReset0); adjRow.addView(btnPlus1)
+
         fun renderMonth() {
+            nowH = PrayerCalculator.getUmmAlQuraNow(store.hijriOffsetDays)
+            todayY = nowH.get(IslamicCalendar.YEAR)
+            todayM = nowH.get(IslamicCalendar.MONTH)
+            todayD = nowH.get(IslamicCalendar.DAY_OF_MONTH)
+
             val mName = if (ar) monthsAr[viewMonth.coerceIn(0, 11)] else monthsEn[viewMonth.coerceIn(0, 11)]
             monthTitle.text = if (ar) "$mName $viewYear هـ" else "$mName $viewYear AH"
             gridContainer.removeAllViews()
@@ -1181,10 +1285,15 @@ class MainActivity : AppCompatActivity() {
             }
             gridContainer.addView(wkRow)
 
-            val firstDay = IslamicCalendar(viewYear, viewMonth, 1)
+            val firstDay = IslamicCalendar().apply {
+                try { calculationType = IslamicCalendar.CalculationType.ISLAMIC_UMALQURA } catch (_: Exception) { }
+                set(IslamicCalendar.YEAR, viewYear)
+                set(IslamicCalendar.MONTH, viewMonth)
+                set(IslamicCalendar.DAY_OF_MONTH, 1)
+            }
             val daysInMonth = firstDay.getActualMaximum(IslamicCalendar.DAY_OF_MONTH)
-            val dow = firstDay.get(IslamicCalendar.DAY_OF_WEEK) // Sat=7, Sun=1..Fri=6
-            val startCol = if (dow == Calendar.SATURDAY) 0 else dow // Sat->0, Sun->1 .. Fri->6
+            val dow = firstDay.get(IslamicCalendar.DAY_OF_WEEK)
+            val startCol = if (dow == Calendar.SATURDAY) 0 else dow
 
             var d = 1
             for (r in 0 until 6) {
@@ -1213,8 +1322,14 @@ class MainActivity : AppCompatActivity() {
                 }
                 gridContainer.addView(row)
             }
+            val (ramDays, ramCurDay) = PrayerCalculator.getRamadanCountdown(store.hijriOffsetDays)
+            footerTv.text = if (ramCurDay > 0) (if (ar) "🌙 اليوم $ramCurDay من شهر رمضان المبارك" else "🌙 Day $ramCurDay of Ramadan")
+            else (if (ar) "🌙 باقي $ramDays يومًا على شهر رمضان المبارك • اليوم: ${PrayerCalculator.formatHijriDate(ar, store.hijriOffsetDays)}" else "🌙 $ramDays days until Ramadan")
         }
 
+        btnMinus1.setOnClickListener { store.hijriOffsetDays = (store.hijriOffsetDays - 1).coerceIn(-2, 2); renderMonth() }
+        btnReset0.setOnClickListener { store.hijriOffsetDays = 0; renderMonth() }
+        btnPlus1.setOnClickListener { store.hijriOffsetDays = (store.hijriOffsetDays + 1).coerceIn(-2, 2); renderMonth() }
         prevBtn.setOnClickListener {
             viewMonth--
             if (viewMonth < 0) { viewMonth = 11; viewYear-- }
@@ -1226,10 +1341,10 @@ class MainActivity : AppCompatActivity() {
             renderMonth()
         }
         renderMonth()
-        box.addView(navRow); box.addView(gridContainer); box.addView(footerTv)
+        box.addView(navRow); box.addView(gridContainer); box.addView(footerTv); box.addView(adjRow)
 
         AlertDialog.Builder(this)
-            .setTitle(if (ar) "🗓️ التقويم الهجري" else "🗓️ Hijri Calendar")
+            .setTitle(if (ar) "🗓️ التقويم الهجري (أم القرى)" else "🗓️ Hijri Calendar (Umm Al-Qura)")
             .setView(box)
             .setPositiveButton(if (ar) "إغلاق" else "Close", null)
             .show()

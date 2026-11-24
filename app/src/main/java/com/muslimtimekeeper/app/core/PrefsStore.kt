@@ -160,6 +160,10 @@ class PrefsStore(context: Context) {
         get() = prefs.getBoolean("prayer_lock_enabled", true)
         set(v) = prefs.edit().putBoolean("prayer_lock_enabled", v).apply()
 
+    var hijriOffsetDays: Int
+        get() = prefs.getInt("hijri_offset_days", 0)
+        set(v) = prefs.edit().putInt("hijri_offset_days", v.coerceIn(-2, 2)).apply()
+
     var iqamaAudioEnabled: Boolean
         get() = prefs.getBoolean("iqama_audio_enabled", true)
         set(v) = prefs.edit().putBoolean("iqama_audio_enabled", v).apply()

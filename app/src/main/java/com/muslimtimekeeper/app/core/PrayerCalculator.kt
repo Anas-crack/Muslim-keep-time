@@ -251,15 +251,23 @@ object PrayerCalculator {
      * Returns Pair(daysUntilRamadan, currentRamadanDay).
      * If currently in Ramadan (Hijri month index 8), daysUntilRamadan = 0 and currentRamadanDay = 1..30.
      */
-    fun getRamadanCountdown(): Pair<Int, Int> {
+    fun getRamadanCountdown(offsetDays: Int = 0): Pair<Int, Int> {
         return try {
-            val now = IslamicCalendar()
+            val now = getUmmAlQuraNow(offsetDays)
             val curMonth = now.get(IslamicCalendar.MONTH) // 0=Muharram .. 8=Ramadan
             val curDay = now.get(IslamicCalendar.DAY_OF_MONTH)
             val curYear = now.get(IslamicCalendar.YEAR)
             if (curMonth == 8) return Pair(0, curDay)
             val targetYear = if (curMonth < 8) curYear else curYear + 1
-            val target = IslamicCalendar(targetYear, 8, 1)
+            val target = IslamicCalendar().apply {
+                try { calculationType = IslamicCalendar.CalculationType.ISLAMIC_UMALQURA } catch (_: Exception) { }
+                set(IslamicCalendar.YEAR, targetYear)
+                set(IslamicCalendar.MONTH, 8)
+                set(IslamicCalendar.DAY_OF_MONTH, 1)
+                set(IslamicCalendar.HOUR_OF_DAY, 0)
+                set(IslamicCalendar.MINUTE, 0)
+                set(IslamicCalendar.SECOND, 0)
+            }
             val diffMs = target.timeInMillis - now.timeInMillis
             val days = ((diffMs + 86_399_999L) / 86_400_000L).toInt().coerceAtLeast(1)
             Pair(days, 0)
@@ -297,9 +305,18 @@ object PrayerCalculator {
         return String.format(Locale.US, "%02d:%02d:%02d", h, m, s)
     }
 
-    fun formatHijriDate(isAr: Boolean): String {
+    fun getUmmAlQuraNow(offsetDays: Int = 0): IslamicCalendar {
+        val hc = IslamicCalendar()
+        try {
+            hc.calculationType = IslamicCalendar.CalculationType.ISLAMIC_UMALQURA
+        } catch (_: Exception) { }
+        hc.timeInMillis = System.currentTimeMillis() + (offsetDays * 86_400_000L)
+        return hc
+    }
+
+    fun formatHijriDate(isAr: Boolean, offsetDays: Int = 0): String {
         return try {
-            val hc = IslamicCalendar()
+            val hc = getUmmAlQuraNow(offsetDays)
             val day = hc.get(IslamicCalendar.DAY_OF_MONTH)
             val month = hc.get(IslamicCalendar.MONTH)
             val year = hc.get(IslamicCalendar.YEAR)

@@ -199,7 +199,7 @@ class GuardianService : Service() {
         val win = PrayerCalculator.getPrayerProgressWindow(store.latitude, store.longitude, store.timezoneOffset, ar)
         val exactTime = PrayerCalculator.formatExactTime(win.nextMillis, ar)
         val hms = PrayerCalculator.formatCountdownHms(win.nextMillis - now)
-        val hijri = PrayerCalculator.formatHijriDate(ar)
+        val hijri = PrayerCalculator.formatHijriDate(ar, store.hijriOffsetDays)
 
         val totalSpan = (win.nextMillis - win.prevMillis).coerceAtLeast(1L)
         val elapsed = (now - win.prevMillis).coerceIn(0L, totalSpan)
@@ -506,19 +506,24 @@ class GuardianService : Service() {
             }
         }
 
-        // 2. At Iqama time (Adhan + iqamaDelayMinutes): Lock screen + play El-Hosary Iqama + Mosque Auto-Silent!
-        val activePrayer = if (store.prayerLockEnabled && System.currentTimeMillis() >= prayerUnlockedUntil) {
-            PrayerCalculator.getActivePrayer(
-                store.latitude, store.longitude, store.timezoneOffset,
-                store.prayerDurationMinutes, store.iqamaDelayMinutes
-            )
-        } else null
+        // 2. Active Iqama/Prayer Window (used for BOTH Mosque Auto-Silent AND optional Prayer Lock!)
+        val rawPrayerWindow = PrayerCalculator.getActivePrayer(
+            store.latitude, store.longitude, store.timezoneOffset,
+            store.prayerDurationMinutes, store.iqamaDelayMinutes
+        )
 
+        // Independent Mosque Auto-Silent: silences phone when Iqama/Prayer enters, auto-restores sound when duration ends!
+        if (rawPrayerWindow != null && store.mosqueAutoSilentEnabled) {
+            enableMosqueSilent()
+        } else if (store.savedRingerMode != -1) {
+            restoreRingerMode()
+        }
+
+        // Optional Prayer Screen Lock & Post-Prayer Adhkar
+        val activePrayer = if (store.prayerLockEnabled && System.currentTimeMillis() >= prayerUnlockedUntil) rawPrayerWindow else null
         if (activePrayer != null) {
             lastActivePrayerKey = "${store.todayStr()}_${activePrayer.name}"
-            enableMosqueSilent()
         } else {
-            restoreRingerMode()
             if (lastActivePrayerKey.isNotEmpty()) {
                 if (store.postPrayerAdhkarEnabled && store.lastAdhkarCompletedKey != lastActivePrayerKey) {
                     store.pendingAdhkarPrayerKey = lastActivePrayerKey
