@@ -37,24 +37,15 @@ object Strings {
         "app_sub" to "حارس وقت المسلم",
         "locked" to "🔒 Locked",
         "unlocked" to "🔓 Unlocked",
-        "tab_home" to "🏠
-Home",
-        "tab_quran" to "📖
-Quran",
-        "tab_schedule" to "📅
-Tasks",
-        "tab_manage" to "🛡️
-Manage",
-        "tab_apps" to "🎮
-Apps",
-        "tab_prayer" to "🕌
-Prayer",
-        "tab_tasbeeh" to "📿
-Adhkar",
-        "tab_data" to "📶
-Data",
-        "tab_safety" to "🛡️
-Safety",
+        "tab_home" to "🏠\nHome",
+        "tab_quran" to "📖\nQuran",
+        "tab_schedule" to "📅\nTasks",
+        "tab_manage" to "🛡️\nManage",
+        "tab_apps" to "🎮\nApps",
+        "tab_prayer" to "🕌\nPrayer",
+        "tab_tasbeeh" to "📿\nAdhkar",
+        "tab_data" to "📶\nData",
+        "tab_safety" to "🛡️\nSafety",
         "time_left" to "TIME LEFT TODAY",
         "daily_limit" to "Daily Phone Limit",
         "used_today" to "Used Today",
@@ -109,24 +100,15 @@ Safety",
         "app_sub" to "Muslim Time Keeper",
         "locked" to "🔒 مقفل",
         "unlocked" to "🔓 مفتوح",
-        "tab_home" to "🏠
-الرئيسية",
-        "tab_quran" to "📖
-المصحف",
-        "tab_schedule" to "📅
-الجدول",
-        "tab_manage" to "🛡️
-الإدارة",
-        "tab_apps" to "🎮
-التطبيقات",
-        "tab_prayer" to "🕌
-الصلاة",
-        "tab_tasbeeh" to "📿
-الأذكار",
-        "tab_data" to "📶
-الإنترنت",
-        "tab_safety" to "🛡️
-الحماية",
+        "tab_home" to "🏠\nالرئيسية",
+        "tab_quran" to "📖\nالمصحف",
+        "tab_schedule" to "📅\nالجدول",
+        "tab_manage" to "🛡️\nالإدارة",
+        "tab_apps" to "🎮\nالتطبيقات",
+        "tab_prayer" to "🕌\nالصلاة",
+        "tab_tasbeeh" to "📿\nالأذكار",
+        "tab_data" to "📶\nالإنترنت",
+        "tab_safety" to "🛡️\nالحماية",
         "time_left" to "الوقت المتبقي اليوم",
         "daily_limit" to "الحد اليومي للهاتف",
         "used_today" to "المستخدم اليوم",
@@ -179,14 +161,8 @@ Safety",
     private val frMap = mapOf(
         "app_name" to "Gardien du Temps Musulman",
         "locked" to "🔒 Verrouillé", "unlocked" to "🔓 Ouvert",
-        "tab_home" to "🏠
-Accueil", "tab_quran" to "📖
-Coran", "tab_schedule" to "📅
-Tâches",
-        "tab_manage" to "🛡️
-Gérer", "tab_prayer" to "🕌
-Prière", "tab_tasbeeh" to "📿
-Adhkar",
+        "tab_home" to "🏠\nAccueil", "tab_quran" to "📖\nCoran", "tab_schedule" to "📅\nTâches",
+        "tab_manage" to "🛡️\nGérer", "tab_prayer" to "🕌\nPrière", "tab_tasbeeh" to "📿\nAdhkar",
         "save" to "Enregistrer", "cancel" to "Annuler", "remove" to "🗑️ Supprimer",
         "prayer_title" to "🕌 Horaires de Prière", "prayer_lock_sw" to "Verrouiller l'écran à l'Iqama",
         "adhan_sw" to "Jouer l'Adhan automatiquement", "test_adhan" to "🔊 Tester l'Adhan",
@@ -196,14 +172,8 @@ Adhkar",
     private val trMap = mapOf(
         "app_name" to "Müslüman Zaman Koruyucu",
         "locked" to "🔒 Kilitli", "unlocked" to "🔓 Açık",
-        "tab_home" to "🏠
-Ana", "tab_quran" to "📖
-Kur'an", "tab_schedule" to "📅
-Görev",
-        "tab_manage" to "🛡️
-Yönet", "tab_prayer" to "🕌
-Namaz", "tab_tasbeeh" to "📿
-Zikir",
+        "tab_home" to "🏠\nAna", "tab_quran" to "📖\nKur'an", "tab_schedule" to "📅\nGörev",
+        "tab_manage" to "🛡️\nYönet", "tab_prayer" to "🕌\nNamaz", "tab_tasbeeh" to "📿\nZikir",
         "save" to "Kaydet", "cancel" to "İptal", "remove" to "🗑️ Sil",
         "prayer_title" to "🕌 Namaz Vakitleri", "prayer_lock_sw" to "Kamet Vaktinde Ekranı Kilitle",
         "adhan_sw" to "Ezanı Otomatik Çal", "test_adhan" to "🔊 Ezanı Test Et",
@@ -213,14 +183,8 @@ Zikir",
     private val idMap = mapOf(
         "app_name" to "Penjaga Waktu Muslim",
         "locked" to "🔒 Terkunci", "unlocked" to "🔓 Terbuka",
-        "tab_home" to "🏠
-Beranda", "tab_quran" to "📖
-Quran", "tab_schedule" to "📅
-Jadwal",
-        "tab_manage" to "🛡️
-Kelola", "tab_prayer" to "🕌
-Sholat", "tab_tasbeeh" to "📿
-Dzikir",
+        "tab_home" to "🏠\nBeranda", "tab_quran" to "📖\nQuran", "tab_schedule" to "📅\nJadwal",
+        "tab_manage" to "🛡️\nKelola", "tab_prayer" to "🕌\nSholat", "tab_tasbeeh" to "📿\nDzikir",
         "save" to "Simpan", "cancel" to "Batal", "remove" to "🗑️ Hapus",
         "prayer_title" to "🕌 Waktu Sholat & Adzan", "prayer_lock_sw" to "Kunci Layar saat Iqamah",
         "adhan_sw" to "Putar Adzan Otomatis", "test_adhan" to "🔊 Tes Adzan",
@@ -230,14 +194,8 @@ Dzikir",
     private val urMap = mapOf(
         "app_name" to "مسلم ٹائم کیپر",
         "locked" to "🔒 مقفل", "unlocked" to "🔓 کھلا",
-        "tab_home" to "🏠
-ہوم", "tab_quran" to "📖
-قرآن", "tab_schedule" to "📅
-شیڈول",
-        "tab_manage" to "🛡️
-انتظام", "tab_prayer" to "🕌
-نماز", "tab_tasbeeh" to "📿
-اذکار",
+        "tab_home" to "🏠\nہوم", "tab_quran" to "📖\nقرآن", "tab_schedule" to "📅\nشیڈول",
+        "tab_manage" to "🛡️\nانتظام", "tab_prayer" to "🕌\nنماز", "tab_tasbeeh" to "📿\nاذکار",
         "save" to "محفوظ", "cancel" to "منسوخ", "remove" to "🗑️ حذف",
         "prayer_title" to "🕌 اوقاتِ نماز", "prayer_lock_sw" to "اقامت پر اسکرین لاک کریں",
         "adhan_sw" to "اذان خودکار چلائیں", "test_adhan" to "🔊 اذان چیک کریں",
@@ -247,14 +205,8 @@ Dzikir",
     private val esMap = mapOf(
         "app_name" to "Guardián del Tiempo Musulmán",
         "locked" to "🔒 Bloqueado", "unlocked" to "🔓 Abierto",
-        "tab_home" to "🏠
-Inicio", "tab_quran" to "📖
-Corán", "tab_schedule" to "📅
-Tareas",
-        "tab_manage" to "🛡️
-Gestión", "tab_prayer" to "🕌
-Oración", "tab_tasbeeh" to "📿
-Adhkar",
+        "tab_home" to "🏠\nInicio", "tab_quran" to "📖\nCorán", "tab_schedule" to "📅\nTareas",
+        "tab_manage" to "🛡️\nGestión", "tab_prayer" to "🕌\nOración", "tab_tasbeeh" to "📿\nAdhkar",
         "save" to "Guardar", "cancel" to "Cancelar", "remove" to "🗑️ Eliminar",
         "prayer_title" to "🕌 Horarios de Oración", "prayer_lock_sw" to "Bloquear pantalla en Iqama",
         "adhan_sw" to "Reproducir Adhan automáticamente", "test_adhan" to "🔊 Probar Adhan",
@@ -264,14 +216,8 @@ Adhkar",
     private val deMap = mapOf(
         "app_name" to "Muslim Zeitwächter",
         "locked" to "🔒 Gesperrt", "unlocked" to "🔓 Offen",
-        "tab_home" to "🏠
-Start", "tab_quran" to "📖
-Koran", "tab_schedule" to "📅
-Plan",
-        "tab_manage" to "🛡️
-Verw.", "tab_prayer" to "🕌
-Gebet", "tab_tasbeeh" to "📿
-Dhikr",
+        "tab_home" to "🏠\nStart", "tab_quran" to "📖\nKoran", "tab_schedule" to "📅\nPlan",
+        "tab_manage" to "🛡️\nVerw.", "tab_prayer" to "🕌\nGebet", "tab_tasbeeh" to "📿\nDhikr",
         "save" to "Speichern", "cancel" to "Abbrechen", "remove" to "🗑️ Löschen",
         "prayer_title" to "🕌 Gebetszeiten", "prayer_lock_sw" to "Bildschirm bei Iqama sperren",
         "adhan_sw" to "Adhan automatisch abspielen", "test_adhan" to "🔊 Adhan testen",
