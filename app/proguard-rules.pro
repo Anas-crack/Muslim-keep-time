@@ -1,1 +1,1 @@
-# Keep all app classes clean
+-keep class com.dynamicisland.redminote8.** { *; }

@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/bg_screen_gradient"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="18dp">
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:background="@drawable/bg_hero_card" android:gravity="center_vertical" android:orientation="horizontal" android:padding="16dp">
+            <ImageView android:layout_width="64dp" android:layout_height="64dp" android:contentDescription="@string/app_name" android:scaleType="centerCrop" android:src="@drawable/app_logo" />
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="14dp" android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Dynamic Island" android:textColor="#FFFFFF" android:textSize="22sp" android:textStyle="bold" />
+                <TextView android:id="@+id/tvVersionBadge" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="v1.1.2 • Glass Blur + Dual Pill" android:textColor="#38BDF8" android:textSize="12sp" android:textStyle="bold" />
+                <TextView android:id="@+id/tvServiceState" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="● متوقفة حاليًا" android:textColor="#94A3B8" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="14dp" android:background="@drawable/bg_card_glass" android:orientation="vertical" android:padding="16dp">
+            <Switch android:id="@+id/switchEnableIsland" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="تفعيل الجزيرة العائمة الزجاجية" android:textColor="#FFFFFF" android:textSize="15sp" android:textStyle="bold" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:orientation="horizontal">
+                <Button android:id="@+id/btnTestIsland" android:layout_width="0dp" android:layout_height="42dp" android:layout_marginEnd="6dp" android:layout_weight="1" android:background="@drawable/bg_btn_primary" android:text="إشعار تجريبي" android:textAllCaps="false" android:textColor="#FFFFFF" android:textSize="12sp" android:textStyle="bold" />
+                <Button android:id="@+id/btnTestAnim" android:layout_width="0dp" android:layout_height="42dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_btn_secondary" android:text="حركة الظهور" android:textAllCaps="false" android:textColor="#38BDF8" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal">
+                <Button android:id="@+id/btnTestDual" android:layout_width="0dp" android:layout_height="42dp" android:layout_marginEnd="6dp" android:layout_weight="1" android:background="@drawable/bg_btn_secondary" android:text="اختبار التطبيقين" android:textAllCaps="false" android:textColor="#A78BFA" android:textSize="12sp" android:textStyle="bold" />
+                <Button android:id="@+id/btnTestCharge" android:layout_width="0dp" android:layout_height="42dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_btn_secondary" android:text="اختبار الشحن ⚡" android:textAllCaps="false" android:textColor="#34D399" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:orientation="horizontal">
+                <Button android:id="@+id/btnTestCall" android:layout_width="0dp" android:layout_height="40dp" android:layout_marginEnd="6dp" android:layout_weight="1" android:background="@drawable/bg_btn_secondary" android:text="اختبار المكالمة 📞" android:textAllCaps="false" android:textColor="#34D399" android:textSize="12sp" android:textStyle="bold" />
+                <Button android:id="@+id/btnTestPrivacy" android:layout_width="0dp" android:layout_height="40dp" android:layout_marginStart="6dp" android:layout_weight="1" android:background="@drawable/bg_btn_secondary" android:text="كاميرا ومايك 📷🎙️" android:textAllCaps="false" android:textColor="#FB923C" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="14dp" android:gravity="center_vertical" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="1. إذن الظهور فوق التطبيقات" android:textColor="#E2E8F0" android:textSize="13sp" />
+                <TextView android:id="@+id/tvOverlayStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="✕ غير مفعّل" android:textColor="#FB7185" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+            <Button android:id="@+id/btnOverlayPermission" android:layout_width="match_parent" android:layout_height="42dp" android:layout_marginTop="6dp" android:background="@drawable/bg_btn_secondary" android:text="فتح إذن الظهور فوق التطبيقات" android:textAllCaps="false" android:textColor="#FFFFFF" android:textStyle="bold" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="14dp" android:gravity="center_vertical" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="2. إذن الوسائط والإشعارات (يوتيوب / واتساب)" android:textColor="#E2E8F0" android:textSize="13sp" />
+                <TextView android:id="@+id/tvNotifStatus" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="✕ غير مفعّل" android:textColor="#FBBF24" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+            <Button android:id="@+id/btnNotifPermission" android:layout_width="match_parent" android:layout_height="42dp" android:layout_marginTop="6dp" android:background="@drawable/bg_btn_secondary" android:text="فتح إذن الوصول للوسائط والإشعارات" android:textAllCaps="false" android:textColor="#FFFFFF" android:textStyle="bold" />
+            <Button android:id="@+id/btnUsagePermission" android:layout_width="match_parent" android:layout_height="42dp" android:layout_marginTop="8dp" android:background="@drawable/bg_btn_secondary" android:text="3. إذن معرفة التطبيق (لشعار فيسبوك ويوتيوب)" android:textAllCaps="false" android:textColor="#38BDF8" android:textSize="12sp" android:textStyle="bold" />
+            <Button android:id="@+id/btnAppInfoRestricted" android:layout_width="match_parent" android:layout_height="42dp" android:layout_marginTop="10dp" android:background="@drawable/bg_btn_amber" android:text="فك الإعدادات المقيدة (ريدمي نوت 8 2021)" android:textAllCaps="false" android:textColor="#FDE68A" android:textSize="12sp" android:textStyle="bold" />
+        </LinearLayout>
+
+        <!-- Auto-Hide Duration (Min 5s + Custom Number Input) & Fullscreen Hide -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="14dp" android:background="@drawable/bg_card_glass" android:orientation="vertical" android:padding="16dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="الإخفاء التلقائي وملء الشاشة" android:textColor="#38BDF8" android:textSize="15sp" android:textStyle="bold" />
+
+            <Switch android:id="@+id/switchHideFullscreen" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="إخفاء الجزيرة تلقائيًا في وضع ملء الشاشة والفيديوهات" android:textColor="#34D399" android:textStyle="bold" />
+            <Switch android:id="@+id/switchDualActivity" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="خاصية التطبيقين (الدائرة الجانبية للنشاط الثاني)" android:textColor="#A78BFA" android:textStyle="bold" />
+            <Switch android:id="@+id/switchKeepNotifOpen" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="بقاء الرسالة مفتوحة حتى أشاهدها (مع زر استماع للفويس)" android:textColor="#FBBF24" android:textStyle="bold" />
+            <Switch android:id="@+id/switchAlwaysOn" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="إبقاء الجزيرة شغالة على طول (بدون إخفاء تلقائي)" android:textColor="#34D399" android:textStyle="bold" />
+            <Switch android:id="@+id/switchAutoHide" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="10dp" android:text="إخفاء تلقائي عند السكون بعد وقت محدد" android:textColor="#38BDF8" android:textStyle="bold" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="وقت الاختفاء التلقائي (أقل وقت 5 ثواني):" android:textColor="#E2E8F0" android:textSize="12sp" />
+                <TextView android:id="@+id/tvAutoHideVal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="30 ثانية" android:textColor="#38BDF8" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+
+            <RadioGroup android:id="@+id/rgHidePresets" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:orientation="horizontal">
+                <RadioButton android:id="@+id/rbHide5" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="5 ث" android:textColor="#FFFFFF" android:textSize="11sp" />
+                <RadioButton android:id="@+id/rbHide15" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="15 ث" android:textColor="#FFFFFF" android:textSize="11sp" />
+                <RadioButton android:id="@+id/rbHide30" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="30 ث" android:textColor="#FFFFFF" android:textSize="11sp" />
+                <RadioButton android:id="@+id/rbHide45" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="45 ث" android:textColor="#FFFFFF" android:textSize="11sp" />
+                <RadioButton android:id="@+id/rbHide60" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="دقيقة" android:textColor="#FFFFFF" android:textSize="11sp" />
+            </RadioGroup>
+            <SeekBar android:id="@+id/seekAutoHideSec" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="115" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:gravity="center_vertical" android:orientation="horizontal">
+                <EditText android:id="@+id/etAutoHideSec" android:layout_width="0dp" android:layout_height="42dp" android:layout_marginEnd="8dp" android:layout_weight="1" android:background="@drawable/bg_input_glass" android:hint="اكتب الثواني (مثلاً 5 أو 15 أو 35)" android:inputType="number" android:paddingStart="12dp" android:paddingEnd="12dp" android:textColor="#FFFFFF" android:textColorHint="#64748B" android:textSize="13sp" />
+                <Button android:id="@+id/btnApplyAutoHide" android:layout_width="wrap_content" android:layout_height="42dp" android:background="@drawable/bg_btn_primary" android:paddingStart="16dp" android:paddingEnd="16dp" android:text="تطبيق" android:textAllCaps="false" android:textColor="#FFFFFF" android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <!-- Glassmorphism Blur & Notch Card -->
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="14dp" android:background="@drawable/bg_card_glass" android:orientation="vertical" android:padding="16dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="الشفافية الزجاجية والبلور والنوتش" android:textColor="#38BDF8" android:textSize="15sp" android:textStyle="bold" />
+
+            <Switch android:id="@+id/switchGlassBlur" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="تفعيل الشفافية الزجاجية على الجزيرة فقط (Glassmorphism)" android:textColor="#38BDF8" android:textStyle="bold" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="درجة شفافية الزجاج" android:textColor="#E2E8F0" android:textSize="12sp" />
+                <TextView android:id="@+id/tvGlassOpacityVal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="82%" android:textColor="#38BDF8" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+            <SeekBar android:id="@+id/seekGlassOpacity" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="10dp" android:max="60" />
+
+            <RadioGroup android:id="@+id/rgCutoutType" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="10dp" android:orientation="vertical">
+                <RadioButton android:id="@+id/rbWaterdropNotch" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="نوتش قطرة (Waterdrop Notch — مثل ريدمي نوت 8)" android:textColor="#FFFFFF" android:textSize="13sp" />
+                <RadioButton android:id="@+id/rbPunchHole" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="كاميرا نقطة في الشاشة (Punch-Hole)" android:textColor="#FFFFFF" android:textSize="13sp" />
+            </RadioGroup>
+
+            <Switch android:id="@+id/switchCoverStatusBar" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="شريط كامل العرض لتغطية شريط الحالة الأصلي" android:textColor="#E2E8F0" />
+            <Switch android:id="@+id/switchStatusIcons" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:text="عرض البلوتوث والصامت والواي فاي والشبكة والبطارية" android:textColor="#E2E8F0" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="ارتفاع الشريط الكامل" android:textColor="#E2E8F0" android:textSize="12sp" />
+                <TextView android:id="@+id/tvBarHeightVal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="42 dp" android:textColor="#38BDF8" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+            <SeekBar android:id="@+id/seekBarHeight" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="28" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="مساحة الأمان حول الكاميرا/النوتش" android:textColor="#E2E8F0" android:textSize="12sp" />
+                <TextView android:id="@+id/tvNotchGapVal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="46 dp" android:textColor="#38BDF8" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+            <SeekBar android:id="@+id/seekNotchGap" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="68" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="المسافة من أعلى الشاشة" android:textColor="#E2E8F0" android:textSize="12sp" />
+                <TextView android:id="@+id/tvTopOffsetVal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="6 dp" android:textColor="#38BDF8" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+            <SeekBar android:id="@+id/seekTopOffset" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="60" />
+
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:orientation="horizontal">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="عرض الجزيرة المصغرة" android:textColor="#E2E8F0" android:textSize="12sp" />
+                <TextView android:id="@+id/tvWidthVal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="276 dp" android:textColor="#38BDF8" android:textSize="12sp" android:textStyle="bold" />
+            </LinearLayout>
+            <SeekBar android:id="@+id/seekWidth" android:layout_width="match_parent" android:layout_height="wrap_content" android:max="200" />
+
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="لون الجزيرة" android:textColor="#E2E8F0" android:textSize="12sp" />
+            <RadioGroup android:id="@+id/rgTheme" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:orientation="horizontal">
+                <RadioButton android:id="@+id/rbBlack" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="أسود زجاجي" android:textColor="#FFFFFF" />
+                <RadioButton android:id="@+id/rbCharcoal" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="فحمي" android:textColor="#FFFFFF" />
+                <RadioButton android:id="@+id/rbNavy" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="كحلي" android:textColor="#FFFFFF" />
+                <RadioButton android:id="@+id/rbLight" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="أبيض" android:textColor="#FFFFFF" />
+            </RadioGroup>
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="14dp" android:background="@drawable/bg_card_glass" android:orientation="vertical" android:padding="16dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="10dp" android:text="الملف الشخصي والساعة (صور عالية الوضوح)" android:textColor="#38BDF8" android:textSize="15sp" android:textStyle="bold" />
+            <EditText android:id="@+id/etUserName" android:layout_width="match_parent" android:layout_height="46dp" android:background="@drawable/bg_input_glass" android:hint="اسمك في الجزيرة (يظهر يمين النوتش)" android:inputType="textPersonName" android:paddingStart="14dp" android:paddingEnd="14dp" android:textColor="#FFFFFF" android:textColorHint="#64748B" android:textSize="14sp" />
+            <Switch android:id="@+id/switch24Hour" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:text="نظام 24 ساعة" android:textColor="#E2E8F0" />
+            <Button android:id="@+id/btnPickAvatar" android:layout_width="match_parent" android:layout_height="44dp" android:layout_marginTop="10dp" android:background="@drawable/bg_btn_secondary" android:text="اختيار صورتك الشخصية من المعرض" android:textAllCaps="false" android:textColor="#FFFFFF" android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="14dp" android:background="@drawable/bg_card_glass" android:orientation="vertical" android:padding="16dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="6dp" android:text="التحديث التلقائي عبر GitHub" android:textColor="#38BDF8" android:textSize="15sp" android:textStyle="bold" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="10dp" android:text="اكتب اسم مستودعك (مثال: username/Dinamic-island) ليتم فحص وتثبيت الإصدارات الجديدة تلقائيًا." android:textColor="#94A3B8" android:textSize="12sp" />
+            <EditText android:id="@+id/etGithubRepo" android:layout_width="match_parent" android:layout_height="46dp" android:background="@drawable/bg_input_glass" android:hint="username/repo-name" android:inputType="textUri" android:paddingStart="14dp" android:paddingEnd="14dp" android:textColor="#FFFFFF" android:textColorHint="#64748B" android:textSize="14sp" />
+            <Switch android:id="@+id/switchAutoUpdate" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:text="التحقق التلقائي عند فتح التطبيق" android:textColor="#E2E8F0" />
+            <Button android:id="@+id/btnCheckUpdate" android:layout_width="match_parent" android:layout_height="44dp" android:layout_marginTop="10dp" android:background="@drawable/bg_btn_primary" android:text="التحقق من التحديثات الآن" android:textAllCaps="false" android:textColor="#FFFFFF" android:textStyle="bold" />
+        </LinearLayout>
+
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="20dp" android:background="@drawable/bg_hero_card" android:gravity="center_vertical" android:orientation="horizontal" android:padding="16dp">
+            <ImageView android:layout_width="46dp" android:layout_height="46dp" android:contentDescription="المطور أنس محمد" android:scaleType="centerCrop" android:src="@drawable/app_logo" />
+            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="12dp" android:layout_weight="1" android:orientation="vertical">
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="عن المطور" android:textColor="#38BDF8" android:textSize="12sp" android:textStyle="bold" />
+                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="أنس محمد (Anas Mohamed)" android:textColor="#FFFFFF" android:textSize="16sp" android:textStyle="bold" />
+                <TextView android:id="@+id/tvDevVersion" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="2dp" android:text="تطبيق Dynamic Island — الإصدار v1.1.2" android:textColor="#CBD5E1" android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>
