@@ -18,6 +18,8 @@ import android.animation.ObjectAnimator
 import android.Manifest
 import android.app.NotificationManager
 import android.hardware.GeomagneticField
+import android.location.Geocoder
+import java.util.TimeZone
 import android.location.LocationManager
 import androidx.core.app.ActivityCompat
 import android.hardware.Sensor
@@ -86,10 +88,13 @@ class MainActivity : AppCompatActivity() {
     private var liveTimerTv: TextView? = null
     private var livePctTv: TextView? = null
     private var liveBar: ProgressBar? = null
+    private var liveMosqueSky: MosqueSkyView? = null
+    private var selectedScheduleDay: Int = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
     private val uiHandler = Handler(Looper.getMainLooper())
     private val liveClockRunnable = object : Runnable {
         override fun run() {
             if (currentTab == 0) updateLiveTimerUi()
+            if (currentTab == 4) updateLiveMosqueSky()
             uiHandler.postDelayed(this, 1000L)
         }
     }
@@ -127,7 +132,12 @@ class MainActivity : AppCompatActivity() {
         buildShell()
         renderTab(0)
         uiHandler.post(liveClockRunnable)
-        if (store.userName.isBlank()) promptUserName()
+        if (!store.languageChosen) {
+            uiHandler.postDelayed({ showLanguagePickerDialog(true) }, 300L)
+        } else {
+            if (store.userName.isBlank()) promptUserName()
+            if (store.autoLocationEnabled) detectLocationAndCityAsync(silent = true)
+        }
     }
 
     private var autoUpdateCheckedOnce = false
@@ -228,7 +238,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun s(key: String): String = Strings.get(store.isArabic, key)
+    private fun s(key: String): String = Strings.get(store.appLanguage, key)
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
 
     private fun cardBg(borderHex: String? = null): GradientDrawable = GradientDrawable().apply {
@@ -269,8 +279,96 @@ class MainActivity : AppCompatActivity() {
         lockStatusChip.setTextColor(if (parentUnlocked) Color.WHITE else Color.parseColor(btnNeutralFg()))
     }
 
+    private fun showLanguagePickerDialog(isFirstLaunch: Boolean) {
+        val labels = Strings.supportedLanguages.map { "${it.third}  ${it.second}" }.toTypedArray()
+        val builder = AlertDialog.Builder(this)
+            .setTitle("🌐 Choose Your Language / اختر لغتك")
+            .setItems(labels) { _, which ->
+                val code = Strings.supportedLanguages[which].first
+                store.appLanguage = code
+                store.languageChosen = true
+                buildShell()
+                renderTab(currentTab)
+                if (isFirstLaunch) {
+                    val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    if (!hasFine) {
+                        ActivityCompat.requestPermissions(
+                            this,
+                            arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                            2027
+                        )
+                    }
+                    detectLocationAndCityAsync(silent = true)
+                    if (store.userName.isBlank()) promptUserName()
+                }
+            }
+        if (!isFirstLaunch) builder.setNegativeButton(s("cancel"), null)
+        builder.show()
+    }
+
+    private fun detectLocationAndCityAsync(silent: Boolean) {
+        val hasFine = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val hasCoarse = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if (!hasFine && !hasCoarse) {
+            if (!silent) {
+                ActivityCompat.requestPermissions(
+                    this,
+                    arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION),
+                    2027
+                )
+            }
+            return
+        }
+        Thread {
+            val gotGps = tryUpdateLocationFromGps()
+            if (gotGps) {
+                store.timezoneOffset = TimeZone.getDefault().getOffset(System.currentTimeMillis()) / 3_600_000.0
+                try {
+                    val geo = Geocoder(this, Locale(store.appLanguage))
+                    @Suppress("DEPRECATION")
+                    val list = geo.getFromLocation(store.latitude, store.longitude, 1)
+                    if (!list.isNullOrEmpty()) {
+                        val addr = list[0]
+                        val city = addr.locality ?: addr.subAdminArea ?: addr.adminArea ?: ""
+                        val country = addr.countryName ?: ""
+                        val combined = listOf(city, country).filter { it.isNotBlank() }.joinToString("، ")
+                        if (combined.isNotBlank()) store.cityName = combined
+                    }
+                } catch (_: Exception) { }
+                uiHandler.post {
+                    if (!silent) {
+                        Toast.makeText(
+                            this,
+                            if (store.isArabic) "📍 تم تحديث موقعك وتوقيت الصلاة: ${store.cityName}" else "📍 Location updated: ${store.cityName}",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    if (currentTab == 4) renderTab(4)
+                }
+            } else if (!silent) {
+                uiHandler.post {
+                    Toast.makeText(
+                        this,
+                        if (store.isArabic) "تأكد من تشغيل GPS ثم حاول مجدداً أو اختر مدينتك من القائمة" else "Enable GPS and retry, or select your city below",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }.start()
+    }
+
+    private fun updateLiveMosqueSky() {
+        val sky = liveMosqueSky ?: return
+        val ar = store.isArabic
+        val nxt = PrayerCalculator.getNextPrayer(store.latitude, store.longitude, store.timezoneOffset, ar)
+        sky.skyPhase = PrayerCalculator.getCurrentSkyPhase(store.latitude, store.longitude, store.timezoneOffset)
+        sky.nextPrayerLabel = if (ar) "${nxt.first} بعد" else "${nxt.first} in"
+        sky.countdownHms = PrayerCalculator.formatCountdownHms(nxt.second - System.currentTimeMillis())
+        sky.locationLabel = "📍 ${store.cityName}"
+    }
+
     private fun buildShell() {
-        window.decorView.layoutDirection = if (store.isArabic) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
+        window.decorView.layoutDirection = if (Strings.isRtl(store.appLanguage)) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
         window.statusBarColor = bgBar()
         window.navigationBarColor = bgBar()
 
@@ -303,11 +401,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         val langBtn = TextView(this).apply {
-            text = if (store.isArabic) "EN" else "عربي"
-            textSize = 12f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol())
-            background = gradientBg(btnNeutralBg(), btnNeutralBg(), 10); setPadding(dp(10), dp(6), dp(10), dp(6))
+            text = "🌐 " + store.appLanguage.uppercase(Locale.US)
+            textSize = 11.5f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol())
+            background = gradientBg(btnNeutralBg(), btnNeutralBg(), 10); setPadding(dp(8), dp(6), dp(8), dp(6))
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(6) }
-            setOnClickListener { store.isArabic = !store.isArabic; buildShell(); renderTab(currentTab) }
+            setOnClickListener { showLanguagePickerDialog(false) }
         }
 
         lockStatusChip = TextView(this).apply {
@@ -400,7 +498,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderTab(index: Int) {
         currentTab = index
-        liveTimerTv = null; livePctTv = null; liveBar = null
+        liveTimerTv = null; livePctTv = null; liveBar = null; liveMosqueSky = null
         navButtons.forEachIndexed { i, tv ->
             if (i == index) {
                 tv.background = gradientBg(if (store.isDarkMode) "#4438BDF8" else "#550284C7", if (store.isDarkMode) "#4438BDF8" else "#550284C7", 12)
@@ -891,8 +989,66 @@ class MainActivity : AppCompatActivity() {
 
     // --- Tab 2: Prayer & Adhan (Localized Prayer Names!) ---
     private fun buildPrayerTab(): View {
+        val ar = store.isArabic
         val scroll = ScrollView(this)
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(16), dp(16), dp(24)) }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(10), dp(12), dp(24)) }
+
+        // 0. Animated Dynamic Mosque Sky Hero (Fajr / Sunrise / Dhuhr / Asr / Maghrib / Isha)
+        val skyView = MosqueSkyView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(230)).apply { bottomMargin = dp(8) }
+        }
+        liveMosqueSky = skyView
+        updateLiveMosqueSky()
+        col.addView(skyView)
+
+        // 0B. Compact Horizontal 6-Prayer Strip + Hijri Date Header
+        val stripCard = makeCard()
+        stripCard.addView(TextView(this).apply {
+            text = "🗓️ ${PrayerCalculator.formatHijriDate(ar, store.hijriOffsetDays)}"
+            textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol()); gravity = Gravity.CENTER
+            setPadding(0, 0, 0, dp(8))
+            setOnClickListener { openHijriCalendarDialog() }
+        })
+        val dispTimes = PrayerCalculator.calculateDisplayTimes(store.latitude, store.longitude, store.timezoneOffset)
+        val nextPInfo = PrayerCalculator.getNextPrayer(store.latitude, store.longitude, store.timezoneOffset, ar)
+        val stripRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for (k in listOf("Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha")) {
+            val calP = dispTimes[k] ?: continue
+            val locName = PrayerCalculator.localizedName(k, ar)
+            val isNext = (locName == nextPInfo.first)
+            val cell = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER
+                setPadding(dp(2), dp(6), dp(2), dp(6))
+                if (isNext) background = gradientBg("#059669", "#10B981", 10)
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            val iconStr = when (k) {
+                "Fajr" -> "🌌"; "Sunrise" -> "🌅"; "Dhuhr" -> "☀️"; "Asr" -> "🌤️"; "Maghrib" -> "🌇"; else -> "🌙"
+            }
+            cell.addView(TextView(this).apply { text = iconStr; textSize = 14f; gravity = Gravity.CENTER })
+            cell.addView(TextView(this).apply {
+                text = locName; textSize = 10.5f; setTypeface(null, Typeface.BOLD)
+                setTextColor(if (isNext) Color.WHITE else textPrimary()); gravity = Gravity.CENTER
+            })
+            cell.addView(TextView(this).apply {
+                text = SimpleDateFormat("hh:mm", Locale.US).format(calP.time)
+                textSize = 10.5f; setTypeface(null, Typeface.BOLD)
+                setTextColor(if (isNext) Color.parseColor("#FEF08A") else accentCol()); gravity = Gravity.CENTER
+            })
+            stripRow.addView(cell)
+        }
+        stripCard.addView(stripRow)
+        stripCard.addView(makeBtn(
+            if (ar) "📍 تحديد موقعي وتوقيت بلدي تلقائياً (GPS)" else "📍 Auto-Detect My Country & Prayer Times (GPS)",
+            "#0284C7", "#0EA5E9"
+        ) {
+            store.autoLocationEnabled = true
+            detectLocationAndCityAsync(silent = false)
+        }.apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(38)).apply { topMargin = dp(8) }
+            textSize = 12.5f
+        })
+        col.addView(stripCard)
 
         val ctrlCard = makeCard(s("prayer_title"), "#10B981")
         val swLock = Switch(this).apply {
@@ -1970,241 +2126,310 @@ class MainActivity : AppCompatActivity() {
         else -> ""
     }
 
-    // --- Tab 3: Daily Schedule (Multi-Day Lessons up to 4 Days/Week) ---
+    // --- Tab 3: Day-by-Day Weekly Task Planner (Start->End Time + Done/Missed Checkboxes + Edit) ---
+    private fun openScheduleTaskDialog(existing: ScheduleItem?) {
+        val ar = store.isArabic
+        var startH = existing?.hour ?: 16
+        var startM = existing?.minute ?: 0
+        var endH = if (existing != null && existing.endHour >= 0) existing.endHour else ((startH + 1) % 24)
+        var endM = if (existing != null && existing.endMinute >= 0) existing.endMinute else startM
+        val allDays = listOf(
+            Calendar.SATURDAY, Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY,
+            Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY
+        )
+        val selectedDays = linkedSetOf<Int>()
+        if (existing != null && existing.days.isNotEmpty()) {
+            selectedDays.addAll(existing.days)
+        } else {
+            selectedDays.add(selectedScheduleDay)
+        }
+
+        val dlgBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(12), dp(18), dp(12)) }
+        val titleIn = EditText(this).apply {
+            hint = if (ar) "اسم المهمة أو الدرس (مثلاً: درس دراسات / ركوب عربية)" else "Task or lesson title"
+            if (existing != null) setText(existing.title)
+        }
+        fun fmtHm(h: Int, m: Int): String {
+            val c = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m) }
+            return PrayerCalculator.formatExactTime(c.timeInMillis, ar)
+        }
+
+        val timeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(6) }
+        }
+        val startBtn = Button(this).apply {
+            text = (if (ar) "من: " else "From: ") + fmtHm(startH, startM)
+            isAllCaps = false; textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginEnd = dp(4) }
+            setOnClickListener {
+                TimePickerDialog(this@MainActivity, { _, h, m ->
+                    startH = h; startM = m
+                    text = (if (ar) "من: " else "From: ") + fmtHm(h, m)
+                }, startH, startM, false).show()
+            }
+        }
+        val endBtn = Button(this).apply {
+            text = (if (ar) "إلى: " else "To: ") + fmtHm(endH, endM)
+            isAllCaps = false; textSize = 12f
+            layoutParams = LinearLayout.LayoutParams(0, dp(40), 1f).apply { marginStart = dp(4) }
+            setOnClickListener {
+                TimePickerDialog(this@MainActivity, { _, h, m ->
+                    endH = h; endM = m
+                    text = (if (ar) "إلى: " else "To: ") + fmtHm(h, m)
+                }, endH, endM, false).show()
+            }
+        }
+        timeRow.addView(startBtn); timeRow.addView(endBtn)
+
+        val daysHeader = TextView(this).apply {
+            text = if (ar) "📅 أيام المهمة (حتى 4 أيام): ${selectedDays.size} / 4" else "📅 Task Days (max 4): ${selectedDays.size} / 4"
+            textSize = 12.5f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol())
+            setPadding(0, dp(10), 0, dp(6))
+        }
+        fun refreshDayCount() {
+            daysHeader.text = if (ar) "📅 أيام المهمة (حتى 4 أيام): ${selectedDays.size} / 4" else "📅 Task Days (max 4): ${selectedDays.size} / 4"
+        }
+        fun makeDayChip(dow: Int): TextView {
+            val isSel = dow in selectedDays
+            return TextView(this).apply {
+                text = dayLabel(dow, ar); gravity = Gravity.CENTER; textSize = 12f; setTypeface(null, Typeface.BOLD)
+                setPadding(dp(6), dp(8), dp(6), dp(8))
+                background = if (isSel) gradientBg("#059669", "#10B981", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                setTextColor(if (isSel) Color.WHITE else Color.parseColor(btnNeutralFg()))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                    marginStart = dp(3); marginEnd = dp(3); bottomMargin = dp(6)
+                }
+                setOnClickListener {
+                    if (dow in selectedDays) {
+                        selectedDays.remove(dow)
+                        background = gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                        setTextColor(Color.parseColor(btnNeutralFg()))
+                    } else {
+                        if (selectedDays.size >= 4) {
+                            Toast.makeText(this@MainActivity, if (ar) "الحد الأقصى 4 أيام لكل مهمة" else "Max 4 days per task", Toast.LENGTH_SHORT).show()
+                            return@setOnClickListener
+                        }
+                        selectedDays.add(dow)
+                        background = gradientBg("#059669", "#10B981", 10)
+                        setTextColor(Color.WHITE)
+                    }
+                    refreshDayCount()
+                }
+            }
+        }
+        val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for (i in 0..3) row1.addView(makeDayChip(allDays[i]))
+        for (i in 4..6) row2.addView(makeDayChip(allDays[i]))
+
+        dlgBox.addView(titleIn); dlgBox.addView(timeRow); dlgBox.addView(daysHeader); dlgBox.addView(row1); dlgBox.addView(row2)
+
+        val dlg = AlertDialog.Builder(this)
+            .setTitle(if (existing == null) (if (ar) "➕ إضافة مهمة جديدة" else "➕ New Task") else (if (ar) "✏️ تعديل المهمة" else "✏️ Edit Task"))
+            .setView(dlgBox)
+            .setPositiveButton(s("save"), null)
+            .setNegativeButton(s("cancel"), null)
+            .create()
+        dlg.show()
+        dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            val t = titleIn.text.toString().trim()
+            if (t.isEmpty()) {
+                Toast.makeText(this, if (ar) "اكتب اسم المهمة أولاً" else "Enter task title", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            if (selectedDays.isEmpty()) {
+                Toast.makeText(this, if (ar) "اختر يومًا واحدًا على الأقل" else "Select at least 1 day", Toast.LENGTH_SHORT).show()
+                return@setOnClickListener
+            }
+            val orderedDays = allDays.filter { it in selectedDays }
+            val items = store.getScheduleItems()
+            if (existing == null) {
+                items.add(ScheduleItem(System.currentTimeMillis().toString(), t, startH, startM, true, "", orderedDays, endH, endM, "", ""))
+            } else {
+                val idx = items.indexOfFirst { it.id == existing.id }
+                if (idx >= 0) items[idx] = existing.copy(title = t, hour = startH, minute = startM, days = orderedDays, endHour = endH, endMinute = endM)
+            }
+            store.saveScheduleItems(items)
+            dlg.dismiss()
+            renderTab(3)
+        }
+    }
+
     private fun buildScheduleTab(): View {
         val ar = store.isArabic
         val scroll = ScrollView(this)
-        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(14), dp(14), dp(24)) }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(12), dp(12), dp(12), dp(24)) }
+
+        val today = store.todayStr()
+        val todayDow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+        val allDays = listOf(
+            Calendar.SATURDAY, Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY,
+            Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY
+        )
+
+        val hdrCard = makeCard(
+            if (ar) "📅 مهام يوم ${dayLabel(selectedScheduleDay, true)}" + (if (selectedScheduleDay == todayDow) " (اليوم)" else "")
+            else "📅 ${dayLabel(selectedScheduleDay, false)} Tasks" + (if (selectedScheduleDay == todayDow) " (Today)" else "")
+        )
+        val dayRow1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dp(4)) }
+        val dayRow2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; setPadding(0, 0, 0, dp(8)) }
+        for (i in allDays.indices) {
+            val dow = allDays[i]
+            val isSel = (dow == selectedScheduleDay)
+            val isToday = (dow == todayDow)
+            val chip = TextView(this).apply {
+                text = dayLabel(dow, ar) + (if (isToday) " •" else "")
+                gravity = Gravity.CENTER; textSize = 12f; setTypeface(null, Typeface.BOLD)
+                setPadding(dp(4), dp(8), dp(4), dp(8))
+                background = if (isSel) gradientBg("#059669", "#10B981", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                setTextColor(if (isSel) Color.WHITE else Color.parseColor(btnNeutralFg()))
+                layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
+                setOnClickListener { selectedScheduleDay = dow; renderTab(3) }
+            }
+            if (i < 4) dayRow1.addView(chip) else dayRow2.addView(chip)
+        }
+        hdrCard.addView(dayRow1); hdrCard.addView(dayRow2)
 
         val curLead = store.scheduleReminderMinutes
-        val leadLabel = when (curLead) {
-            60 -> if (ar) "ساعة" else "1 hour"
-            30 -> if (ar) "نصف ساعة" else "30 min"
-            10 -> if (ar) "10 دقائق" else "10 min"
-            else -> if (ar) "5 دقائق" else "5 min"
-        }
-        val hdrCard = makeCard(if (ar) "📅 جدول الدروس والمواعيد" else "📅 Lessons & Schedule")
         hdrCard.addView(TextView(this).apply {
-            text = if (ar) "أضف دروسك وحدد أيام كل درس (حتى 4 أيام)، وسيرسل الهاتف إشعارًا مع هزاز قبل كل درس بـ $leadLabel في أيامه فقط."
-            else "Add lessons (up to 4 weekdays each); your phone will notify and vibrate $leadLabel before each lesson."
-            textSize = 12.5f; setTextColor(textMuted())
-        })
-
-        // Global Pre-Lesson Reminder Lead Time Picker (applies to ALL lessons)
-        hdrCard.addView(TextView(this).apply {
-            text = if (ar) "🔔 وقت التذكير (رسالة + هزاز) قبل كل الدروس:" else "🔔 Reminder before all lessons (Alert + Vibrate):"
-            textSize = 12.5f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol())
-            setPadding(0, dp(10), 0, dp(6))
+            text = if (ar) "🔔 وقت التذكير (رسالة + هزاز) قبل كل مهمة:" else "🔔 Reminder before tasks (Alert + Vibrate):"
+            textSize = 12f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol()); setPadding(0, dp(2), 0, dp(6))
         })
         val remRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(8) }
         }
-        val leadChoices = listOf(
-            5 to (if (ar) "5 د" else "5m"),
-            10 to (if (ar) "10 د" else "10m"),
-            30 to (if (ar) "نصف ساعة" else "30m"),
-            60 to (if (ar) "ساعة" else "1h")
-        )
-        for ((mins, lbl) in leadChoices) {
+        for ((mins, lbl) in listOf(5 to (if (ar) "5 د" else "5m"), 10 to (if (ar) "10 د" else "10m"), 30 to (if (ar) "نصف ساعة" else "30m"), 60 to (if (ar) "ساعة" else "1h"))) {
             val active = (curLead == mins)
             remRow.addView(Button(this).apply {
-                text = lbl; isAllCaps = false; textSize = 12f; setTypeface(null, Typeface.BOLD)
-                background = if (active) gradientBg("#059669", "#10B981", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                text = lbl; isAllCaps = false; textSize = 11.5f; setTypeface(null, Typeface.BOLD)
+                background = if (active) gradientBg("#0284C7", "#0EA5E9", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
                 setTextColor(if (active) Color.WHITE else Color.parseColor(btnNeutralFg()))
-                layoutParams = LinearLayout.LayoutParams(0, dp(36), 1f).apply { marginStart = dp(3); marginEnd = dp(3) }
-                setOnClickListener {
-                    store.scheduleReminderMinutes = mins
-                    vibrateDhikr(false)
-                    Toast.makeText(
-                        this@MainActivity,
-                        if (ar) "تم ضبط التذكير (رسالة + هزاز) قبل كل درس بـ $lbl" else "Lesson reminder set to $lbl before class",
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    renderTab(3)
-                }
+                layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { marginStart = dp(2); marginEnd = dp(2) }
+                setOnClickListener { store.scheduleReminderMinutes = mins; vibrateDhikr(false); renderTab(3) }
             })
         }
         hdrCard.addView(remRow)
-        hdrCard.addView(makeBtn(if (ar) "➕ إضافة درس أو موعد جديد" else "➕ Add Lesson / Appointment", "#059669", "#10B981") {
-            var pickedH = 16
-            var pickedM = 0
-            val selectedDays = linkedSetOf<Int>()
-            val allDays = listOf(
-                Calendar.SATURDAY, Calendar.SUNDAY, Calendar.MONDAY, Calendar.TUESDAY,
-                Calendar.WEDNESDAY, Calendar.THURSDAY, Calendar.FRIDAY
-            )
 
-            val dlgBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(18), dp(12), dp(18), dp(12)) }
-            val titleIn = EditText(this).apply { hint = if (ar) "اسم الدرس أو الموعد (مثلاً: درس رياضيات)" else "Lesson or task title" }
-            val timeBtn = Button(this).apply {
-                text = if (ar) "⏰ اختر الوقت: 04:00 م" else "⏰ Pick Time: 16:00"
-                isAllCaps = false
-                setOnClickListener {
-                    TimePickerDialog(this@MainActivity, { _, h, m ->
-                        pickedH = h; pickedM = m
-                        val calTmp = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, h); set(Calendar.MINUTE, m) }
-                        text = "⏰ " + PrayerCalculator.formatExactTime(calTmp.timeInMillis, ar)
-                    }, pickedH, pickedM, false).show()
-                }
-            }
-            val daysHeader = TextView(this).apply {
-                text = if (ar) "📅 اختر أيام الدرس (بحد أقصى 4 أيام): 0 / 4" else "📅 Pick lesson days (max 4): 0 / 4"
-                textSize = 13f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol())
-                setPadding(0, dp(12), 0, dp(6))
-            }
-
-            fun refreshDayCount() {
-                daysHeader.text = if (ar) "📅 اختر أيام الدرس (بحد أقصى 4 أيام): ${selectedDays.size} / 4"
-                else "📅 Pick lesson days (max 4): ${selectedDays.size} / 4"
-            }
-
-            fun makeDayChip(dow: Int): TextView {
-                return TextView(this).apply {
-                    text = dayLabel(dow, ar)
-                    gravity = Gravity.CENTER; textSize = 12f; setTypeface(null, Typeface.BOLD)
-                    setPadding(dp(6), dp(8), dp(6), dp(8))
-                    background = gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
-                    setTextColor(Color.parseColor(btnNeutralFg()))
-                    layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
-                        marginStart = dp(3); marginEnd = dp(3); bottomMargin = dp(6)
-                    }
-                    setOnClickListener {
-                        if (dow in selectedDays) {
-                            selectedDays.remove(dow)
-                            background = gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
-                            setTextColor(Color.parseColor(btnNeutralFg()))
-                        } else {
-                            if (selectedDays.size >= 4) {
-                                Toast.makeText(
-                                    this@MainActivity,
-                                    if (ar) "الحد الأقصى 4 أيام لكل درس" else "Maximum 4 days per lesson",
-                                    Toast.LENGTH_SHORT
-                                ).show()
-                                return@setOnClickListener
-                            }
-                            selectedDays.add(dow)
-                            background = gradientBg("#059669", "#10B981", 10)
-                            setTextColor(Color.WHITE)
-                        }
-                        refreshDayCount()
-                    }
-                }
-            }
-
-            val row1 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            val row2 = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-            for (i in 0..3) row1.addView(makeDayChip(allDays[i]))
-            for (i in 4..6) row2.addView(makeDayChip(allDays[i]))
-
-            dlgBox.addView(titleIn)
-            dlgBox.addView(timeBtn)
-            dlgBox.addView(daysHeader)
-            dlgBox.addView(row1)
-            dlgBox.addView(row2)
-
-            val dlg = AlertDialog.Builder(this)
-                .setTitle(if (ar) "إضافة درس جديد" else "Add New Lesson")
-                .setView(dlgBox)
-                .setPositiveButton(s("save"), null)
-                .setNegativeButton(s("cancel"), null)
-                .create()
-            dlg.show()
-            dlg.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val t = titleIn.text.toString().trim()
-                if (t.isEmpty()) {
-                    Toast.makeText(this, if (ar) "اكتب اسم الدرس أولاً" else "Enter lesson title first", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                if (selectedDays.isEmpty()) {
-                    Toast.makeText(this, if (ar) "اختر يومًا واحدًا على الأقل (حتى 4 أيام)" else "Select at least 1 day (up to 4)", Toast.LENGTH_SHORT).show()
-                    return@setOnClickListener
-                }
-                val orderedDays = allDays.filter { it in selectedDays }
-                val items = store.getScheduleItems()
-                items.add(ScheduleItem(System.currentTimeMillis().toString(), t, pickedH, pickedM, true, "", orderedDays))
-                store.saveScheduleItems(items)
-                dlg.dismiss()
-                renderTab(3)
-            }
-        })
+        hdrCard.addView(makeBtn(
+            if (ar) "➕ إضافة مهمة ليوم ${dayLabel(selectedScheduleDay, true)}" else "➕ Add Task for ${dayLabel(selectedScheduleDay, false)}",
+            "#059669", "#10B981"
+        ) { openScheduleTaskDialog(null) })
         col.addView(hdrCard)
 
-        val today = store.todayStr()
-        val todayDow = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
-        val items = store.getScheduleItems()
-        if (items.isEmpty()) {
+        val dayItems = store.getScheduleItems().filter { it.days.isEmpty() || selectedScheduleDay in it.days }
+        if (dayItems.isEmpty()) {
             val emptyCard = makeCard()
             emptyCard.addView(TextView(this).apply {
-                text = if (ar) "جدول دروسك فارغ حالياً — اضغط الزر أعلاه لإضافة أول درس وتحديد أيامه!" else "Your schedule is empty — tap above to add your first lesson!"
+                text = if (ar) "لا توجد مهام مسجلة ليوم ${dayLabel(selectedScheduleDay, true)} — اضغط الزر أعلاه لإضافة أول مهمة!"
+                else "No tasks scheduled for ${dayLabel(selectedScheduleDay, false)} — tap above to add one!"
                 textSize = 13.5f; setTextColor(textMuted()); gravity = Gravity.CENTER; setPadding(dp(8), dp(18), dp(8), dp(18))
             })
             col.addView(emptyCard)
         } else {
-            for (item in items) {
-                val isDone = (item.doneDate == today)
-                val isTodayLesson = item.days.isEmpty() || todayDow in item.days
+            for (item in dayItems) {
+                val curStatus = if (item.statusDate == today) item.statusState else ""
+                val isDone = (curStatus == "done")
+                val isMissed = (curStatus == "missed")
+
                 val itemCard = makeCard()
                 val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-                val calTmp = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, item.hour); set(Calendar.MINUTE, item.minute) }
-                val timeBadge = TextView(this).apply {
-                    text = "⏰ " + PrayerCalculator.formatExactTime(calTmp.timeInMillis, ar)
-                    textSize = 12.5f; setTypeface(null, Typeface.BOLD); setTextColor(Color.WHITE)
-                    background = gradientBg(if (isDone) "#059669" else "#0284C7", if (isDone) "#10B981" else "#0EA5E9", 10)
-                    setPadding(dp(10), dp(5), dp(10), dp(5))
-                    layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginEnd = dp(10) }
+
+                val cStart = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, item.hour); set(Calendar.MINUTE, item.minute) }
+                val startStr = PrayerCalculator.formatExactTime(cStart.timeInMillis, ar)
+                val timeStr = if (item.endHour >= 0 && item.endMinute >= 0) {
+                    val cEnd = Calendar.getInstance().apply { set(Calendar.HOUR_OF_DAY, item.endHour); set(Calendar.MINUTE, item.endMinute) }
+                    val endStr = PrayerCalculator.formatExactTime(cEnd.timeInMillis, ar)
+                    if (ar) "⏰ من $startStr إلى $endStr" else "⏰ $startStr - $endStr"
+                } else {
+                    "⏰ $startStr"
                 }
-                val titleTv = TextView(this).apply {
-                    text = if (isDone) "✅ ${item.title}" else item.title
-                    textSize = 15.5f; setTypeface(null, Typeface.BOLD); setTextColor(if (isDone) Color.parseColor("#10B981") else textPrimary())
+
+                val infoCol = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
                     layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
                 }
-                top.addView(timeBadge); top.addView(titleTv)
-                if (isTodayLesson) {
-                    top.addView(TextView(this).apply {
-                        text = if (ar) "اليوم" else "Today"
-                        textSize = 11f; setTypeface(null, Typeface.BOLD); setTextColor(Color.WHITE)
-                        background = gradientBg("#059669", "#10B981", 8)
-                        setPadding(dp(8), dp(3), dp(8), dp(3))
+                infoCol.addView(TextView(this).apply {
+                    text = when {
+                        isDone -> "✅ ${item.title}"
+                        isMissed -> "❌ ${item.title}"
+                        else -> item.title
+                    }
+                    textSize = 15.5f; setTypeface(null, Typeface.BOLD)
+                    setTextColor(when {
+                        isDone -> Color.parseColor("#10B981")
+                        isMissed -> Color.parseColor("#EF4444")
+                        else -> textPrimary()
                     })
-                }
-                itemCard.addView(top)
-
-                val daysStr = if (item.days.isEmpty()) {
-                    if (ar) "📅 يومياً (كل أيام الأسبوع)" else "📅 Daily (Every day)"
-                } else {
-                    val joined = item.days.joinToString(" • ") { dayLabel(it, ar) }
-                    if (ar) "📅 الأيام: $joined" else "📅 Days: $joined"
-                }
-                itemCard.addView(TextView(this).apply {
-                    text = daysStr; textSize = 12.5f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol())
-                    setPadding(0, dp(8), 0, dp(2))
                 })
+                infoCol.addView(TextView(this).apply {
+                    text = timeStr; textSize = 12.5f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol())
+                    setPadding(0, dp(3), 0, 0)
+                })
+                top.addView(infoCol)
+
+                val btnCheckDone = TextView(this).apply {
+                    text = "✓"; gravity = Gravity.CENTER; textSize = 18f; setTypeface(null, Typeface.BOLD)
+                    background = if (isDone) gradientBg("#059669", "#10B981", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                    setTextColor(if (isDone) Color.WHITE else Color.parseColor("#10B981"))
+                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { marginEnd = dp(6) }
+                    setOnClickListener {
+                        val nextState = if (isDone) "" else "done"
+                        val updated = store.getScheduleItems().map {
+                            if (it.id == item.id) it.copy(
+                                doneDate = if (nextState == "done") today else "",
+                                statusDate = if (nextState.isEmpty()) "" else today,
+                                statusState = nextState
+                            ) else it
+                        }
+                        store.saveScheduleItems(updated)
+                        vibrateDhikr(nextState == "done")
+                        renderTab(3)
+                    }
+                }
+                val btnCheckMiss = TextView(this).apply {
+                    text = "✕"; gravity = Gravity.CENTER; textSize = 17f; setTypeface(null, Typeface.BOLD)
+                    background = if (isMissed) gradientBg("#DC2626", "#EF4444", 10) else gradientBg(btnNeutralBg(), btnNeutralBg(), 10)
+                    setTextColor(if (isMissed) Color.WHITE else Color.parseColor("#EF4444"))
+                    layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+                    setOnClickListener {
+                        val nextState = if (isMissed) "" else "missed"
+                        val updated = store.getScheduleItems().map {
+                            if (it.id == item.id) it.copy(
+                                doneDate = "",
+                                statusDate = if (nextState.isEmpty()) "" else today,
+                                statusState = nextState
+                            ) else it
+                        }
+                        store.saveScheduleItems(updated)
+                        vibrateDhikr(false)
+                        renderTab(3)
+                    }
+                }
+                top.addView(btnCheckDone); top.addView(btnCheckMiss)
+                itemCard.addView(top)
 
                 val rowBtns = LinearLayout(this).apply {
                     orientation = LinearLayout.HORIZONTAL
                     layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(8) }
                 }
-                val btnDone = Button(this).apply {
-                    text = if (isDone) (if (ar) "تراجع" else "Undo") else (if (ar) "✓ تم الإنجاز" else "✓ Mark Done")
-                    isAllCaps = false; textSize = 12.5f
+                rowBtns.addView(Button(this).apply {
+                    text = if (ar) "✏️ تعديل" else "✏️ Edit"
+                    isAllCaps = false; textSize = 12f
                     background = gradientBg(btnNeutralBg(), btnNeutralBg(), 10); setTextColor(Color.parseColor(btnNeutralFg()))
-                    layoutParams = LinearLayout.LayoutParams(0, dp(38), 1.2f).apply { marginEnd = dp(8) }
-                    setOnClickListener {
-                        val updated = store.getScheduleItems().map { if (it.id == item.id) it.copy(doneDate = if (isDone) "" else today) else it }
-                        store.saveScheduleItems(updated); renderTab(3)
-                    }
-                }
-                val btnDel = Button(this).apply {
-                    text = s("remove"); isAllCaps = false; textSize = 12.5f
+                    layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f).apply { marginEnd = dp(6) }
+                    setOnClickListener { openScheduleTaskDialog(item) }
+                })
+                rowBtns.addView(Button(this).apply {
+                    text = s("remove"); isAllCaps = false; textSize = 12f
                     background = gradientBg("#DC2626", "#EF4444", 10); setTextColor(Color.WHITE)
-                    layoutParams = LinearLayout.LayoutParams(0, dp(38), 1f)
+                    layoutParams = LinearLayout.LayoutParams(0, dp(34), 1f)
                     setOnClickListener {
                         val updated = store.getScheduleItems().filter { it.id != item.id }
                         store.saveScheduleItems(updated); renderTab(3)
                     }
-                }
-                rowBtns.addView(btnDone); rowBtns.addView(btnDel)
+                })
                 itemCard.addView(rowBtns)
                 col.addView(itemCard)
             }

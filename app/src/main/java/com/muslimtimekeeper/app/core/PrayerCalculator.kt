@@ -13,14 +13,26 @@ data class PrayerProgressInfo(val nextName: String, val prevMillis: Long, val ne
 
 object PrayerCalculator {
     val presetCities = linkedMapOf(
-        "Zagazig (Al-Sharqia)" to doubleArrayOf(30.5877, 31.5020, 2.0),
-        "Cairo" to doubleArrayOf(30.0444, 31.2357, 2.0),
-        "Alexandria" to doubleArrayOf(31.2001, 29.9187, 2.0),
-        "Giza" to doubleArrayOf(30.0131, 31.2089, 2.0),
-        "Mansoura" to doubleArrayOf(31.0409, 31.3785, 2.0),
-        "Riyadh" to doubleArrayOf(24.7136, 46.6753, 3.0),
-        "Makkah" to doubleArrayOf(21.3891, 39.8579, 3.0),
-        "Dubai" to doubleArrayOf(25.2048, 55.2708, 4.0)
+        "الزقازيق، مصر (Zagazig)" to doubleArrayOf(30.5877, 31.5020, 2.0),
+        "القاهرة، مصر (Cairo)" to doubleArrayOf(30.0444, 31.2357, 2.0),
+        "الإسكندرية، مصر (Alexandria)" to doubleArrayOf(31.2001, 29.9187, 2.0),
+        "الجزائر، الجزائر (Algiers)" to doubleArrayOf(36.7538, 3.0588, 1.0),
+        "وهران، الجزائر (Oran)" to doubleArrayOf(35.6971, -0.6308, 1.0),
+        "الدار البيضاء، المغرب (Casablanca)" to doubleArrayOf(33.5731, -7.5898, 1.0),
+        "تونس، تونس (Tunis)" to doubleArrayOf(36.8065, 10.1815, 1.0),
+        "الرياض، السعودية (Riyadh)" to doubleArrayOf(24.7136, 46.6753, 3.0),
+        "مكة المكرمة (Makkah)" to doubleArrayOf(21.4225, 39.8262, 3.0),
+        "المدينة المنورة (Madinah)" to doubleArrayOf(24.4672, 39.6112, 3.0),
+        "دبي، الإمارات (Dubai)" to doubleArrayOf(25.2048, 55.2708, 4.0),
+        "عمّان، الأردن (Amman)" to doubleArrayOf(31.9454, 35.9284, 3.0),
+        "القدس، فلسطين (Jerusalem)" to doubleArrayOf(31.7683, 35.2137, 2.0),
+        "بغداد، العراق (Baghdad)" to doubleArrayOf(33.3152, 44.3661, 3.0),
+        "إسطنبول، تركيا (Istanbul)" to doubleArrayOf(41.0082, 28.9784, 3.0),
+        "جاكرتا، إندونيسيا (Jakarta)" to doubleArrayOf(-6.2088, 106.8456, 7.0),
+        "كوالالمبور، ماليزيا (Kuala Lumpur)" to doubleArrayOf(3.1390, 101.6869, 8.0),
+        "باريس، فرنسا (Paris)" to doubleArrayOf(48.8566, 2.3522, 1.0),
+        "لندن، بريطانيا (London)" to doubleArrayOf(51.5074, -0.1278, 0.0),
+        "نيويورك، أمريكا (New York)" to doubleArrayOf(40.7128, -74.0060, -5.0)
     )
 
     private fun dtr(d: Double) = d * PI / 180.0
@@ -102,21 +114,29 @@ object PrayerCalculator {
         val jd = julianDate(y, m, d) - lon / (15.0 * 24.0)
         val shift = effectiveTz(cal, tz) - lon / 15.0
 
+        // Auto-select standard Fajr/Isha angles by world region (Egypt 19.5/17.5, Gulf 18.5/18, ISNA 15/15, Algeria/MWL/Europe 18/17)
+        val (fajrAng, ishaAng) = when {
+            lat in 21.5..32.0 && lon in 24.5..36.0 -> Pair(19.5, 17.5) // Egypt
+            lat in 12.0..32.0 && lon in 36.0..60.0 -> Pair(18.5, 18.0) // Arabian Peninsula
+            lon < -30.0 -> Pair(15.0, 15.0)                            // Americas (ISNA)
+            else -> Pair(18.0, 17.0)                                   // Algeria, Morocco, Tunisia, Turkey, Europe, Asia
+        }
+
         // Pass 1: initial solar positions
-        var fajr = sunAngleTime(jd, lat, 19.5, 5.0 / 24.0, true)
+        var fajr = sunAngleTime(jd, lat, fajrAng, 5.0 / 24.0, true)
         var sunrise = sunAngleTime(jd, lat, 0.833, 6.0 / 24.0, true)
         var dhuhr = midDay(jd, 12.0 / 24.0)
         var asr = asrTime(jd, lat, 1, 13.0 / 24.0)
         var maghrib = sunAngleTime(jd, lat, 0.833, 18.0 / 24.0, false)
-        var isha = sunAngleTime(jd, lat, 17.5, 18.0 / 24.0, false)
+        var isha = sunAngleTime(jd, lat, ishaAng, 18.0 / 24.0, false)
 
         // Pass 2: refine each prayer using its exact fractional day time
-        fajr = sunAngleTime(jd, lat, 19.5, fajr / 24.0, true) + shift
+        fajr = sunAngleTime(jd, lat, fajrAng, fajr / 24.0, true) + shift
         sunrise = sunAngleTime(jd, lat, 0.833, sunrise / 24.0, true) + shift
         dhuhr = midDay(jd, dhuhr / 24.0) + shift
         asr = asrTime(jd, lat, 1, asr / 24.0) + shift
         maghrib = sunAngleTime(jd, lat, 0.833, maghrib / 24.0, false) + shift
-        isha = sunAngleTime(jd, lat, 17.5, isha / 24.0, false) + shift
+        isha = sunAngleTime(jd, lat, ishaAng, isha / 24.0, false) + shift
 
         return mapOf(
             "Fajr" to fajr,
@@ -332,6 +352,26 @@ object PrayerCalculator {
             "$day $mName $year"
         } catch (_: Exception) {
             ""
+        }
+    }
+
+    fun getCurrentSkyPhase(lat: Double, lon: Double, tz: Double): String {
+        val now = System.currentTimeMillis()
+        val t = calculateDisplayTimes(lat, lon, tz)
+        val fajr = t["Fajr"]!!.timeInMillis
+        val sunrise = t["Sunrise"]!!.timeInMillis
+        val dhuhr = t["Dhuhr"]!!.timeInMillis
+        val asr = t["Asr"]!!.timeInMillis
+        val maghrib = t["Maghrib"]!!.timeInMillis
+        val isha = t["Isha"]!!.timeInMillis
+        return when {
+            now < fajr -> "ISHA"
+            now < sunrise -> "FAJR"
+            now < dhuhr -> "SUNRISE"
+            now < asr -> "DHUHR"
+            now < maghrib -> "ASR"
+            now < isha -> "MAGHRIB"
+            else -> "ISHA"
         }
     }
 }

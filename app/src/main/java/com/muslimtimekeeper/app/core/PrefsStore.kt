@@ -23,7 +23,11 @@ data class ScheduleItem(
     val minute: Int,
     val enabled: Boolean = true,
     val doneDate: String = "",
-    val days: List<Int> = emptyList()
+    val days: List<Int> = emptyList(),
+    val endHour: Int = -1,
+    val endMinute: Int = -1,
+    val statusDate: String = "",
+    val statusState: String = "" // "done", "missed", or ""
 )
 
 class PrefsStore(context: Context) {
@@ -112,9 +116,21 @@ class PrefsStore(context: Context) {
         get() = prefs.getBoolean("is_dark_mode", true)
         set(v) = prefs.edit().putBoolean("is_dark_mode", v).apply()
 
+    var appLanguage: String
+        get() = prefs.getString("app_language", if (prefs.getBoolean("is_arabic", true)) "ar" else "en") ?: "ar"
+        set(v) = prefs.edit().putString("app_language", v).putBoolean("is_arabic", v == "ar").apply()
+
+    var languageChosen: Boolean
+        get() = prefs.getBoolean("language_chosen", false)
+        set(v) = prefs.edit().putBoolean("language_chosen", v).apply()
+
+    var autoLocationEnabled: Boolean
+        get() = prefs.getBoolean("auto_location_enabled", true)
+        set(v) = prefs.edit().putBoolean("auto_location_enabled", v).apply()
+
     var isArabic: Boolean
-        get() = prefs.getBoolean("is_arabic", true)
-        set(v) = prefs.edit().putBoolean("is_arabic", v).apply()
+        get() = appLanguage == "ar"
+        set(v) { appLanguage = if (v) "ar" else "en" }
 
     var dailyTimerEnabled: Boolean
         get() = prefs.getBoolean("daily_timer_enabled", true)
@@ -241,7 +257,11 @@ class PrefsStore(context: Context) {
                     minute = o.optInt("m", 0),
                     enabled = o.optBoolean("en", true),
                     doneDate = o.optString("done", ""),
-                    days = daysList
+                    days = daysList,
+                    endHour = o.optInt("eh", -1),
+                    endMinute = o.optInt("em", -1),
+                    statusDate = o.optString("sdate", o.optString("done", "")),
+                    statusState = o.optString("sstate", if (o.optString("done", "").isNotEmpty()) "done" else "")
                 )
             )
         }
@@ -259,6 +279,10 @@ class PrefsStore(context: Context) {
                 put("en", it.enabled)
                 put("done", it.doneDate)
                 put("days", JSONArray().apply { it.days.forEach { d -> put(d) } })
+                put("eh", it.endHour)
+                put("em", it.endMinute)
+                put("sdate", it.statusDate)
+                put("sstate", it.statusState)
             })
         }
         prefs.edit().putString("daily_schedule_json", arr.toString()).apply()
