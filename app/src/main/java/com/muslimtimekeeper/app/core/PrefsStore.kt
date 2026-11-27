@@ -386,4 +386,12 @@ class PrefsStore(context: Context) {
             .apply()
         saveAppRules(getAppRules().map { it.copy(secondsUsedToday = 0, reopenAttempts = 0) })
     }
+
+    fun getPrayerTaskStatus(dateOrDayKey: String, prayerKey: String): String {
+        return prefs.getString("prayer_task_${dateOrDayKey}_$prayerKey", "") ?: ""
+    }
+
+    fun setPrayerTaskStatus(dateOrDayKey: String, prayerKey: String, status: String) {
+        prefs.edit().putString("prayer_task_${dateOrDayKey}_$prayerKey", status).apply()
+    }
 }

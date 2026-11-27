@@ -1021,7 +1021,7 @@ class MainActivity : AppCompatActivity() {
 
         // 0. Animated Dynamic Mosque Sky Hero (Fajr / Sunrise / Dhuhr / Asr / Maghrib / Isha)
         val skyView = MosqueSkyView(this).apply {
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(230)).apply { bottomMargin = dp(8) }
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(248)).apply { bottomMargin = dp(8) }
         }
         liveMosqueSky = skyView
         updateLiveMosqueSky()
@@ -1042,7 +1042,11 @@ class MainActivity : AppCompatActivity() {
             // Explicitly follow language direction: RTL (Fajr on right -> Isha on left) for Arabic/Urdu, LTR for English/French/etc.
             layoutDirection = if (Strings.isRtl(store.appLanguage)) View.LAYOUT_DIRECTION_RTL else View.LAYOUT_DIRECTION_LTR
         }
-        for (k in listOf("Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha")) {
+        val orderedKeys = if (Strings.isRtl(store.appLanguage))
+            listOf("Isha", "Maghrib", "Asr", "Dhuhr", "Sunrise", "Fajr")
+        else
+            listOf("Fajr", "Sunrise", "Dhuhr", "Asr", "Maghrib", "Isha")
+        for (k in orderedKeys) {
             val calP = dispTimes[k] ?: continue
             val locName = PrayerCalculator.localizedName(k, ar)
             val isDefaultNext = (selectedPrayerKey == null && locName == nextPInfo.first)
@@ -2387,24 +2391,69 @@ class MainActivity : AppCompatActivity() {
 
         val todayPrayers = PrayerCalculator.calculateToday(store.latitude, store.longitude, store.timezoneOffset)
         val pDurMs = store.prayerDurationMinutes * 60_000L
+        val statusScopeKey = if (selectedScheduleDay == todayDow) today else "${today}_dow_$selectedScheduleDay"
         for ((pKey, pCal) in todayPrayers) {
             val pStart = PrayerCalculator.formatExactTime(pCal.timeInMillis, ar)
             val pEnd = PrayerCalculator.formatExactTime(pCal.timeInMillis + pDurMs, ar)
+            val pStatus = store.getPrayerTaskStatus(statusScopeKey, pKey)
+            val pDone = (pStatus == "done")
+            val pMissed = (pStatus == "missed")
+            val pLoc = PrayerCalculator.localizedName(pKey, ar)
+
             val pRow = LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-                setPadding(dp(8), dp(6), dp(8), dp(6))
-                background = gradientBg(if (store.isDarkMode) "#220F172A" else "#22E2E8F0", if (store.isDarkMode) "#220F172A" else "#22E2E8F0", 8)
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(4) }
+                setPadding(dp(8), dp(7), dp(8), dp(7))
+                background = gradientBg(if (store.isDarkMode) "#280F172A" else "#28E2E8F0", if (store.isDarkMode) "#280F172A" else "#28E2E8F0", 10)
+                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { bottomMargin = dp(6) }
             }
-            pRow.addView(TextView(this).apply {
-                text = "🕌 " + PrayerCalculator.localizedName(pKey, ar)
-                textSize = 13.5f; setTypeface(null, Typeface.BOLD); setTextColor(textPrimary())
+            val pInfo = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
                 layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
+            }
+            pInfo.addView(TextView(this).apply {
+                text = when {
+                    pDone -> "✅ " + (if (ar) "صلاة $pLoc" else "$pLoc Prayer")
+                    pMissed -> "❌ " + (if (ar) "صلاة $pLoc" else "$pLoc Prayer")
+                    else -> "🕌 " + (if (ar) "صلاة $pLoc" else "$pLoc Prayer")
+                }
+                textSize = 14f; setTypeface(null, Typeface.BOLD)
+                setTextColor(when {
+                    pDone -> Color.parseColor("#10B981")
+                    pMissed -> Color.parseColor("#EF4444")
+                    else -> textPrimary()
+                })
             })
-            pRow.addView(TextView(this).apply {
-                text = if (ar) "من $pStart إلى $pEnd" else "$pStart - $pEnd"
-                textSize = 12f; setTypeface(null, Typeface.BOLD); setTextColor(Color.parseColor("#10B981"))
+            pInfo.addView(TextView(this).apply {
+                text = if (ar) "⏰ من $pStart إلى $pEnd" else "⏰ $pStart - $pEnd"
+                textSize = 11.5f; setTypeface(null, Typeface.BOLD); setTextColor(accentCol())
             })
+            pRow.addView(pInfo)
+
+            val btnPDone = TextView(this).apply {
+                text = "✓"; gravity = Gravity.CENTER; textSize = 17f; setTypeface(null, Typeface.BOLD)
+                background = if (pDone) gradientBg("#059669", "#10B981", 9) else gradientBg(btnNeutralBg(), btnNeutralBg(), 9)
+                setTextColor(if (pDone) Color.WHITE else Color.parseColor("#10B981"))
+                layoutParams = LinearLayout.LayoutParams(dp(36), dp(36)).apply { marginEnd = dp(5) }
+                setOnClickListener {
+                    val next = if (pDone) "" else "done"
+                    store.setPrayerTaskStatus(statusScopeKey, pKey, next)
+                    vibrateDhikr(next == "done")
+                    renderTab(3)
+                }
+            }
+            val btnPMiss = TextView(this).apply {
+                text = "✕"; gravity = Gravity.CENTER; textSize = 16f; setTypeface(null, Typeface.BOLD)
+                background = if (pMissed) gradientBg("#DC2626", "#EF4444", 9) else gradientBg(btnNeutralBg(), btnNeutralBg(), 9)
+                setTextColor(if (pMissed) Color.WHITE else Color.parseColor("#EF4444"))
+                layoutParams = LinearLayout.LayoutParams(dp(36), dp(36))
+                setOnClickListener {
+                    val next = if (pMissed) "" else "missed"
+                    store.setPrayerTaskStatus(statusScopeKey, pKey, next)
+                    vibrateDhikr(false)
+                    renderTab(3)
+                }
+            }
+            pRow.addView(btnPDone); pRow.addView(btnPMiss)
             fixedPrayersCard.addView(pRow)
         }
         col.addView(fixedPrayersCard)
